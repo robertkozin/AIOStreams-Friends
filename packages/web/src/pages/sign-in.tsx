@@ -104,7 +104,7 @@ export function Screen({
     <div
       data-page="sign-in"
       data-name={name}
-      className="relative flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.18),transparent_60%)] px-4 pb-[max(3rem,env(safe-area-inset-bottom))] pt-[max(3rem,env(safe-area-inset-top))]"
+      className="relative flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,rgb(var(--color-brand-500)_/_0.18),transparent_60%)] px-4 pb-[max(3rem,env(safe-area-inset-bottom))] pt-[max(3rem,env(safe-area-inset-top))]"
     >
       <div className={cn('w-full max-w-3xl space-y-8', className)}>
         <motion.div
