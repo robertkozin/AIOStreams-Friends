@@ -306,7 +306,7 @@ export async function webAppName(req: Request): Promise<string> {
   return (await configOf(req))?.addonName || serverName();
 }
 
-const WEB_APP_COLOUR = '#070707';
+const WEB_APP_COLOUR = '#140f06';
 const WEB_APP_ICONS = [192, 512].flatMap((size) =>
   ['any', 'maskable'].map((purpose) => ({
     src: `/web-app-manifest-${size}x${size}.png`,
