@@ -201,7 +201,13 @@ export function SignInPage({
 }) {
   const info = useServerInfo();
   const configSignIn = !!info.features.configSignIn;
-  const copy = signInCopy(configSignIn, info.pinSignIn, !!user, info.personal);
+  // The root is meant for PINs; its other sign-ins still work, unmentioned.
+  const copy = signInCopy(
+    configSignIn,
+    info.pinSignIn,
+    !!user,
+    info.personal || (info.root && info.pinSignIn)
+  );
   const [username, setUsername] = React.useState(user?.Name ?? defaultUsername);
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);

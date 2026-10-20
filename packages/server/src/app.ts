@@ -337,6 +337,27 @@ app.get('/configure', (req, res) => {
   res.redirect('/stremio/configure');
 });
 
+/*
+ * The Jellyfin API at the site root too, so a client needs only the host. It
+ * signs in to the configuration JELLYFIN_ROOT_CONFIGURATION names, and `/`
+ * opens its web app; unset, the root is the SPA's. The SPA's own routes,
+ * other than `/`, still reach the SPA.
+ */
+const AIOSTREAMS_PATHS =
+  /^\/(api|stremio|chilllink|seanime|builtins|blocklist|community|webdav|party|jellyfin|jellyfin-web|assets|static)(\/|$)/i;
+app.use((req, res, next) => {
+  if (
+    !appConfig.jellyfin.enabled ||
+    !process.env.JELLYFIN_ROOT_CONFIGURATION ||
+    AIOSTREAMS_PATHS.test(req.path) ||
+    (req.path !== '/' && isValidSpaRoute(req.path))
+  ) {
+    next();
+    return;
+  }
+  jellyfinRouter(req, res, next);
+});
+
 // SPA route validation: returns true for paths that exist in the client-side router.
 const SPA_STATIC_ROUTES = [
   '/',
