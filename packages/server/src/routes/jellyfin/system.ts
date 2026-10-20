@@ -166,9 +166,13 @@ router.get(
   })
 );
 
-router.get('/Branding/Configuration', (_req, res) => {
+router.get('/Branding/Configuration', (req, res) => {
+  // The site root is meant for PINs.
+  const root = req.baseUrl === '' && !!process.env.JELLYFIN_ROOT_CONFIGURATION;
   res.json({
-    LoginDisclaimer: `Sign in with your ${serverName()} configuration UUID or alias and its password, or approve a Quick Connect code from the configuration page.`,
+    LoginDisclaimer: root
+      ? `Sign in with your name and PIN. On a TV, pick Quick Connect and approve the code in the app on your phone.`
+      : `Sign in with your ${serverName()} configuration UUID or alias and its password, or approve a Quick Connect code from the configuration page.`,
     CustomCss: '',
     SplashscreenEnabled: false,
   });
