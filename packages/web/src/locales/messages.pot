@@ -362,6 +362,7 @@ msgstr ""
 
 #: src/components/layout.tsx
 #: src/pages/history.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/home.tsx
 #: src/pages/settings/apps.tsx
 #: src/pages/settings/cache.tsx
@@ -940,6 +941,7 @@ msgid "Continue"
 msgstr ""
 
 #: src/components/player/next-episode.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/home.tsx
 #: src/pages/settings/interface.tsx
 msgid "Continue watching"
@@ -1268,6 +1270,7 @@ msgstr ""
 
 #: src/components/layout.tsx
 #: src/pages/discover.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/settings/apps.tsx
 msgid "Discover"
 msgstr ""
@@ -1510,6 +1513,7 @@ msgstr ""
 
 #: src/components/layout.tsx
 #: src/pages/favourites.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/settings/apps.tsx
 msgid "Favourites"
 msgstr ""
@@ -2440,6 +2444,10 @@ msgstr ""
 msgid "Nothing playing yet."
 msgstr ""
 
+#: src/pages/home-personal.tsx
+msgid "Nothing to show yet. Things you watch and favourite will appear here."
+msgstr ""
+
 #: src/lib/hosts/shell/android.ts
 msgid "Nothing was heard"
 msgstr ""
@@ -2938,6 +2946,7 @@ msgid "Play/Pause"
 msgstr ""
 
 #: src/lib/hosts/shell/player.ts
+#: src/lib/playback/movi.ts
 #: src/pages/settings/index.tsx
 msgid "Playback"
 msgstr ""
@@ -3314,6 +3323,7 @@ msgid "Resume all"
 msgstr ""
 
 #: src/components/version-picker.tsx
+#: src/lib/playback/movi.ts
 #: src/lib/playback/use-player.ts
 #: src/pages/item.tsx
 msgid "Resume from {resumeAt}"
@@ -3438,6 +3448,7 @@ msgstr ""
 #: src/components/version-settings.tsx
 #: src/lib/input/actions.ts
 #: src/pages/discover.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/search.tsx
 #: src/pages/settings/apps.tsx
 msgid "Search"
@@ -4800,6 +4811,7 @@ msgstr ""
 #: src/components/layout.tsx
 #: src/components/party/party-sheet.tsx
 #: src/components/player/options.tsx
+#: src/pages/home-personal.tsx
 #: src/pages/item.tsx
 msgid "Watch together"
 msgstr ""
@@ -4835,6 +4847,24 @@ msgstr ""
 
 #: src/pages/settings/about.tsx
 msgid "Web app"
+msgstr ""
+
+#: src/pages/home-personal.tsx
+msgid "Welcome"
+msgstr ""
+
+#: src/pages/home-personal.tsx
+msgid "Welcome back"
+msgstr ""
+
+#. placeholder {0}: user.Name
+#: src/pages/home-personal.tsx
+msgid "Welcome back, {0}"
+msgstr ""
+
+#. placeholder {0}: user.Name
+#: src/pages/home-personal.tsx
+msgid "Welcome, {0}"
 msgstr ""
 
 #: src/components/send-report.tsx
