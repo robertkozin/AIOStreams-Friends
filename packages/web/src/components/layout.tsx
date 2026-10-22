@@ -80,7 +80,7 @@ import { RemoteSheet } from './remote-sheet';
 import { WatchNextSync } from './watch-next';
 import { RandomPick } from './random-pick';
 import { ItemMenuHost } from './item-menu';
-import { HomePage } from '../pages/home';
+import { HomePage } from '../pages/home-personal';
 import { PlayerPage } from '../pages/player';
 import { PageShown } from '../lib/page-shown';
 import { GlideLayers } from './glide-layers';
