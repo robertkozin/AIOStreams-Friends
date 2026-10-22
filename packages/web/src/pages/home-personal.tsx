@@ -1,5 +1,4 @@
-import { t } from '@lingui/core/macro';
-import { Trans } from '@lingui/react/macro';
+/* eslint-disable lingui/no-unlocalized-strings -- this fork's home page is English only, to keep the locale files untouched */
 import React from 'react';
 import {
   BiChevronRight,
@@ -70,17 +69,7 @@ export function HomePage() {
       <div data-ui="home-rows" className="space-y-10">
         <header className="space-y-6">
           <h1 data-ui="page-title" className="text-3xl font-bold">
-            {returning ? (
-              user.Name ? (
-                <Trans>Welcome back, {user.Name}</Trans>
-              ) : (
-                <Trans>Welcome back</Trans>
-              )
-            ) : user.Name ? (
-              <Trans>Welcome, {user.Name}</Trans>
-            ) : (
-              <Trans>Welcome</Trans>
-            )}
+            {`${returning ? 'Welcome back' : 'Welcome'}${user.Name ? `, ${user.Name}` : ''}`}
           </h1>
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide lg:mx-0 lg:flex-wrap lg:px-0">
             <Button
@@ -90,7 +79,7 @@ export function HomePage() {
               leftIcon={<BiSearch />}
               onClick={() => navigate(to.search())}
             >
-              <Trans>Search</Trans>
+              Search
             </Button>
             <Button
               size="sm"
@@ -99,7 +88,7 @@ export function HomePage() {
               leftIcon={<BiCompass />}
               onClick={() => navigate(to.discover())}
             >
-              <Trans>Discover</Trans>
+              Discover
             </Button>
             <Button
               size="sm"
@@ -108,23 +97,21 @@ export function HomePage() {
               leftIcon={<BiGroup />}
               onClick={() => openPartySheet()}
             >
-              <Trans>Watch together</Trans>
+              Watch together
             </Button>
           </div>
         </header>
         {empty ? (
           <p className="text-[--muted]">
-            <Trans>
-              Nothing to show yet. Things you watch and favourite will appear
-              here.
-            </Trans>
+            Nothing to show yet. Things you watch and favourite will appear
+            here.
           </p>
         ) : (
           <>
             {(loading || !!continueItems.length) && (
               <EpisodeRow
                 id="resume"
-                title={t`Continue watching`}
+                title={'Continue watching'}
                 items={continueItems}
                 loading={resume.isLoading || nextUp.isLoading}
                 action={
@@ -135,7 +122,7 @@ export function HomePage() {
                     leftIcon={<BiHistory />}
                     onClick={() => navigate(to.history)}
                   >
-                    <Trans>Activity</Trans>
+                    Activity
                   </Button>
                 }
               />
@@ -172,7 +159,7 @@ function FavouritesRow({
           href={href(to.favourites())}
           className="group/title inline-flex items-baseline gap-2"
         >
-          <Trans>Favourites</Trans>
+          Favourites
           <BiChevronRight className="self-center text-xl text-[--muted] transition-transform group-hover/title:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover/title:-translate-x-0.5" />
         </Anchor>
       }

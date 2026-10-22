@@ -363,7 +363,6 @@ msgstr "Actions"
 
 #: src/components/layout.tsx
 #: src/pages/history.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/home.tsx
 #: src/pages/settings/apps.tsx
 #: src/pages/settings/cache.tsx
@@ -942,7 +941,6 @@ msgid "Continue"
 msgstr "Continue"
 
 #: src/components/player/next-episode.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/home.tsx
 #: src/pages/settings/interface.tsx
 msgid "Continue watching"
@@ -1271,7 +1269,6 @@ msgstr "Discord refused the status: {message}"
 
 #: src/components/layout.tsx
 #: src/pages/discover.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/settings/apps.tsx
 msgid "Discover"
 msgstr "Discover"
@@ -1514,7 +1511,6 @@ msgstr "Faster"
 
 #: src/components/layout.tsx
 #: src/pages/favourites.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/settings/apps.tsx
 msgid "Favourites"
 msgstr "Favourites"
@@ -2445,10 +2441,6 @@ msgstr "Nothing matches."
 msgid "Nothing playing yet."
 msgstr "Nothing playing yet."
 
-#: src/pages/home-personal.tsx
-msgid "Nothing to show yet. Things you watch and favourite will appear here."
-msgstr "Nothing to show yet. Things you watch and favourite will appear here."
-
 #: src/lib/hosts/shell/android.ts
 msgid "Nothing was heard"
 msgstr "Nothing was heard"
@@ -2947,7 +2939,6 @@ msgid "Play/Pause"
 msgstr "Play/Pause"
 
 #: src/lib/hosts/shell/player.ts
-#: src/lib/playback/movi.ts
 #: src/pages/settings/index.tsx
 msgid "Playback"
 msgstr "Playback"
@@ -3324,7 +3315,6 @@ msgid "Resume all"
 msgstr "Resume all"
 
 #: src/components/version-picker.tsx
-#: src/lib/playback/movi.ts
 #: src/lib/playback/use-player.ts
 #: src/pages/item.tsx
 msgid "Resume from {resumeAt}"
@@ -3449,7 +3439,6 @@ msgstr "SDH, with sounds described"
 #: src/components/version-settings.tsx
 #: src/lib/input/actions.ts
 #: src/pages/discover.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/search.tsx
 #: src/pages/settings/apps.tsx
 msgid "Search"
@@ -4812,7 +4801,6 @@ msgstr "Watch party"
 #: src/components/layout.tsx
 #: src/components/party/party-sheet.tsx
 #: src/components/player/options.tsx
-#: src/pages/home-personal.tsx
 #: src/pages/item.tsx
 msgid "Watch together"
 msgstr "Watch together"
@@ -4849,24 +4837,6 @@ msgstr "Watching {name}, {at} in"
 #: src/pages/settings/about.tsx
 msgid "Web app"
 msgstr "Web app"
-
-#: src/pages/home-personal.tsx
-msgid "Welcome"
-msgstr "Welcome"
-
-#: src/pages/home-personal.tsx
-msgid "Welcome back"
-msgstr "Welcome back"
-
-#. placeholder {0}: user.Name
-#: src/pages/home-personal.tsx
-msgid "Welcome back, {0}"
-msgstr "Welcome back, {0}"
-
-#. placeholder {0}: user.Name
-#: src/pages/home-personal.tsx
-msgid "Welcome, {0}"
-msgstr "Welcome, {0}"
 
 #: src/components/send-report.tsx
 msgid "What happened"
