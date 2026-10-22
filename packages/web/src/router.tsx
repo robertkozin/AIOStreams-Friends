@@ -14,7 +14,7 @@ import type { PageView } from './components/shell/page-stack';
 import { navigate, setNavigator, to } from './lib/paths';
 import { lastCatalog } from './lib/settings';
 import { openStartPage } from './lib/start-page';
-import { HomePage } from './app/home/page';
+import { HomePage } from './app/home/personal-page';
 import { DiscoverIndex, DiscoverPage } from './app/discover/page';
 import { FavouritesPage } from './app/favourites/page';
 import { CalendarPage } from './app/calendar/page';
