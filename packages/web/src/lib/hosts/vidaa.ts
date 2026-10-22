@@ -1,3 +1,4 @@
+/* eslint-disable lingui/no-unlocalized-strings -- how the server lists the device */
 import type { Host } from '.';
 
 declare global {
@@ -14,7 +15,6 @@ const detected = () =>
   typeof window.Hisense_GetOSVersion === 'function' ||
   /VIDAA/i.test(navigator.userAgent);
 
-/* eslint-disable lingui/no-unlocalized-strings -- how the server lists the device */
 function device(): { name: string } {
   try {
     const model = window.Hisense_GetModelName?.();
@@ -22,7 +22,6 @@ function device(): { name: string } {
   } catch {}
   return { name: 'VIDAA TV' };
 }
-/* eslint-enable lingui/no-unlocalized-strings */
 
 function exit(): void {
   if (window.Hisense_Exit) window.Hisense_Exit();
