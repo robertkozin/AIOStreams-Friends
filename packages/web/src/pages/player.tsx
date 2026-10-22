@@ -26,6 +26,7 @@ import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
 import { moviEngine } from '../lib/playback/movi';
+import { videoEngine } from '../lib/playback/video';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -544,7 +545,12 @@ function Player({
     },
     [local]
   );
-  const own = usePlayer(hostPlayer ?? moviEngine(video), {
+  // Movi is for a computer's or phone's browser; a TV's or app's web view
+  // plays in the page's `<video>`, through the device's own decoders.
+  const engine =
+    hostPlayer ??
+    (currentHost().name === 'browser' ? moviEngine(video) : videoEngine(video));
+  const own = usePlayer(engine, {
     client,
     item,
     url: local?.local
