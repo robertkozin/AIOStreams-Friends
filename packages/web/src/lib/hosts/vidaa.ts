@@ -1,5 +1,4 @@
 import type { Host } from '.';
-import { nameKeyCodes } from '../input/keys';
 
 declare global {
   interface Window {
@@ -32,8 +31,6 @@ function exit(): void {
 
 function create(): Host | null {
   if (!detected()) return null;
-  // The remote's Back sends Backspace's code.
-  nameKeyCodes({ 8: 'Back' });
   return {
     name: 'vidaa',
     tv: true,

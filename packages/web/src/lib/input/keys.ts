@@ -85,17 +85,8 @@ const IGNORED = new Set([
   'Unidentified',
 ]);
 
-/** Codes a host's remote sends for keys that mean something else elsewhere. */
-const hostCodes = new Map<number, string>();
-
-/** Names keys by these codes, over their usual names. */
-export function nameKeyCodes(codes: Record<number, string>): void {
-  for (const [code, name] of Object.entries(codes))
-    hostCodes.set(Number(code), name);
-}
-
 function keyName(e: KeyboardEvent): string | null {
-  const coded = hostCodes.get(e.keyCode) ?? KEY_CODES[e.keyCode];
+  const coded = KEY_CODES[e.keyCode];
   if (coded) return coded;
   const key = ALIASES[e.key] ?? e.key;
   if (!key || IGNORED.has(key)) return null;
