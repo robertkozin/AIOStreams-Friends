@@ -27,7 +27,6 @@ import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
 import { moviEngine } from '../lib/playback/movi';
 import { videoEngine } from '../lib/playback/video';
-import type { EngineFactory } from '../lib/playback/engine';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -111,19 +110,6 @@ export function usePlayerPage() {
       html.classList.remove('playing');
     };
   }, []);
-}
-
-/**
- * The page's player, for an app without one of its own. A computer's or
- * phone's browser gets Movi, which opens files the browser can't. A TV's
- * browser or an app's web view gets the page's `<video>`, which decodes in the
- * device's hardware and keeps HDR and Dolby Vision.
- */
-function pageEngine(
-  video: React.RefObject<HTMLVideoElement | null>
-): EngineFactory {
-  const plainBrowser = currentHost().name === 'browser';
-  return plainBrowser ? moviEngine(video) : videoEngine(video);
 }
 
 export const OBJECT_FIT: Record<VideoFit, string> = {
@@ -559,7 +545,11 @@ function Player({
     },
     [local]
   );
-  const own = usePlayer(hostPlayer ?? pageEngine(video), {
+  const isPlainBrowser = currentHost().name === 'browser';
+  const fallbackEngine = isPlainBrowser
+    ? moviEngine(video)
+    : videoEngine(video);
+  const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
     url: local?.local
