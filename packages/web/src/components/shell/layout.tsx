@@ -57,7 +57,7 @@ import { WatchNextSync } from './watch-next';
 import { ReminderHost } from '@/features/live-tv/live-reminders';
 import { RandomPick } from '@/components/media/random-pick';
 import { ItemMenuHost } from '@/components/media/item-menu';
-import { HomePage } from '@/app/home/page';
+import { HomePage } from '@/app/home/personal-page';
 import { PlayerPage } from '@/app/player/page';
 import { PageShown } from '@/lib/page-shown';
 import { GlideLayers } from './glide-layers';
