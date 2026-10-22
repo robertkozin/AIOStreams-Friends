@@ -1,4 +1,4 @@
-/* eslint-disable lingui/no-unlocalized-strings -- how the server lists the device */
+/* eslint-disable lingui/no-unlocalized-strings -- the fork's own strings, left untranslated */
 import type { Host } from '.';
 
 declare global {
