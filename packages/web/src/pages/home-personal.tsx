@@ -85,7 +85,7 @@ export function HomePage() {
           <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-hide lg:mx-0 lg:flex-wrap lg:px-0">
             <Button
               size="sm"
-              intent="white"
+              intent="gray-subtle"
               className="shrink-0 rounded-full"
               leftIcon={<BiSearch />}
               onClick={() => navigate(to.search())}
