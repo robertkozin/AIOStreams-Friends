@@ -230,7 +230,7 @@ export function HomePage() {
  * Resume points and next episodes play from the row, or list their versions
  * on their own page, which stays behind.
  */
-function EpisodeRow({
+export function EpisodeRow({
   id,
   title,
   items,
@@ -285,7 +285,7 @@ function EpisodeRow({
  * Episodes of shows in progress airing soon, grouped by day. They open their
  * show, having nothing to play yet.
  */
-function UpcomingRow() {
+export function UpcomingRow() {
   const { client } = useSession();
   const upcoming = useUpcoming();
   return (
