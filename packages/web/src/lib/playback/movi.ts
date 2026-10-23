@@ -1,4 +1,4 @@
-import { t } from '@lingui/core/macro';
+/* eslint-disable lingui/no-unlocalized-strings -- this fork's home page is English only, to keep the locale files untouched */
 import type React from 'react';
 import {
   Logger,
@@ -34,7 +34,6 @@ import type { TimeRange } from './playhead';
  * Every line is `[movi]` plus an arrow saying who is talking, so the console
  * reads as a conversation. It prints in production too; filter by `[movi]`.
  */
-/* eslint-disable lingui/no-unlocalized-strings -- console labels */
 const CHANNELS = {
   /** The page called the engine. */
   call: { arrow: '← page', color: '#2563eb' },
@@ -45,7 +44,6 @@ const CHANNELS = {
   /** The engine's own account of what it is doing. */
   info: { arrow: '· self', color: '#6b7280' },
 };
-/* eslint-enable lingui/no-unlocalized-strings */
 /** Said every frame or second, so at most once a second. */
 const NOISY = new Set(['position', 'timeUpdate', 'stats-text']);
 const lastLogged = new Map<string, number>();
@@ -104,7 +102,6 @@ type Assessment = Awaited<ReturnType<typeof MoviPlayer.assessPlayback>>;
 
 const yesNo = (value: boolean) => (value ? 'yes' : 'no');
 
-/* eslint-disable lingui/no-unlocalized-strings -- a technical readout, as movi's own stats are */
 /** Movi's verdict on whether this device plays the file smoothly, and why. */
 function assessmentText(a: Assessment | null): string {
   if (!a) return 'Checking…';
@@ -127,7 +124,6 @@ function assessmentText(a: Assessment | null): string {
   if (a.reasons.length) lines.push('Why:', ...a.reasons.map((r) => `  ${r}`));
   return lines.join('\n');
 }
-/* eslint-enable lingui/no-unlocalized-strings */
 /** Longer than the debrid hop takes to pick and resolve a release. */
 const RESOLVE_MS = 45_000;
 
@@ -197,7 +193,6 @@ function serverStream(
   return differ ? undefined : stream;
 }
 
-/* eslint-disable lingui/no-unlocalized-strings -- the fork's own messages, left untranslated */
 const embeddedLabel = (label: string) => `Embedded: ${label}`;
 
 const failedToStart = () =>
@@ -210,7 +205,6 @@ const failedToLoad = () => 'the stream stopped loading';
 const TRY_SOFTWARE = 'Try software decoding';
 
 const SMOOTHNESS_CHECK = 'Smoothness check';
-/* eslint-enable lingui/no-unlocalized-strings */
 
 // ── Page subtitles ──
 
@@ -221,7 +215,7 @@ const plainText = (text: string) =>
   text.replace(/\\N/gi, '\n').replace(/\\h/g, ' ').replace(TAGS, '').trim();
 
 /** The text showing at `ms`, one line per cue. */
-export function textAt(cues: readonly SubtitleCue[], ms: number): string {
+function textAt(cues: readonly SubtitleCue[], ms: number): string {
   let text = '';
   for (const cue of cues) {
     if (cue.startMs > ms) break;
@@ -234,7 +228,6 @@ export function textAt(cues: readonly SubtitleCue[], ms: number): string {
 
 const OVERLAY = '[data-ui="player-subtitle-embedded"]';
 
-/* eslint-disable lingui/no-unlocalized-strings -- CSS */
 /**
  * Movi's look for the subtitles it draws lives in its element's stylesheet,
  * which a bare player doesn't have, so these are styled and placed as the
@@ -269,7 +262,6 @@ export function embeddedCss(style: SubtitleStyle, lift: number): string {
     ${css.fontFamily ? `font-family: ${css.fontFamily};` : ''}
   }`;
 }
-/* eslint-enable lingui/no-unlocalized-strings */
 
 // ── Types for the three lifetimes ──
 
@@ -558,7 +550,7 @@ class MoviEngine implements PlayerEngine {
 
   stats = {
     pages: [
-      { id: 'movi', label: t`Playback` },
+      { id: 'movi', label: 'Playback' },
       { id: 'assessment', label: SMOOTHNESS_CHECK },
     ],
     show: (page: string | null): void => {
@@ -969,7 +961,7 @@ class MoviEngine implements PlayerEngine {
     if (network) {
       const resumeAt = clock(at);
       return this.fail(failedToLoad(), {
-        label: t`Resume from ${resumeAt}`,
+        label: `Resume from ${resumeAt}`,
         run: () => {
           this.recovery.count = 0;
           moviDebug('retry', { resume: at });
