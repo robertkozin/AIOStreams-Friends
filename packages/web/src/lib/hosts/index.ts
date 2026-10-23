@@ -9,6 +9,7 @@ import { nativeShellHost } from './native-shell';
 import { shellHost } from './shell';
 import type { MediaKey } from './shell/bridge';
 import { tizenHost } from './tizen';
+import { vidaaHost } from './vidaa';
 import { webosHost } from './webos';
 
 export interface NowPlaying {
@@ -123,6 +124,7 @@ export function currentHost(): Host {
     nativeShellHost() ??
     webosHost() ??
     tizenHost() ??
+    vidaaHost() ??
     browserHost
   );
 }
