@@ -27,6 +27,7 @@ function clientName(): string {
     const host = currentHost().name;
     if (host === 'webos') return 'AIOStreams webOS';
     if (host === 'tizen') return 'AIOStreams Tizen';
+    if (host === 'vidaa') return 'AIOStreams VIDAA';
     return 'AIOStreams Web';
   }
   if (shell.platform !== 'android') return 'AIOStreams Desktop';
@@ -127,7 +128,7 @@ function hints(device: string, purpose?: Purpose): Record<string, string> {
   };
   const system =
     shell?.platform ??
-    (host.name === 'webos' || host.name === 'tizen'
+    (['webos', 'tizen', 'vidaa'].includes(host.name)
       ? host.name
       : browserSystem());
   if (system) headers['X-AIOStreams-Platform'] = system;
