@@ -4,6 +4,7 @@ import {
   Logger,
   LogLevel,
   MoviPlayer,
+  type PlayerEventMap,
   type PlayerState,
   type Track as MoviTrack,
 } from 'movi-player/element/slim';
@@ -12,7 +13,6 @@ import { clock } from '../format';
 import { sameLanguage } from '../languages';
 import { parseCues, type SubtitleCue } from '../subtitles/cues';
 import { checkSubtitleFile, readSubtitleFile } from '../subtitles/files';
-import { storage } from '../storage';
 import { subtitleCss, subtitleLine, subtitleScale } from '../subtitles/style';
 import type { MediaStream } from '../types';
 import { ofType, ownTrackLabel, trackLabel } from './controller';
@@ -31,22 +31,54 @@ import type { TimeRange } from './playhead';
 // ── Debug ──
 
 /**
- * Whether the movi engine says what it does in the console: in a dev build,
- * or once `localStorage['aiostreams-movi-debug'] = '1'` and the page reloads.
+ * Every line is `[movi]` plus an arrow saying who is talking, so the console
+ * reads as a conversation. It prints in production too; filter by `[movi]`.
  */
-const moviDebugging =
-  process.env.NODE_ENV !== 'production' ||
-  !!storage.get<unknown>('aiostreams-movi-debug');
+/* eslint-disable lingui/no-unlocalized-strings -- console labels */
+const CHANNELS = {
+  /** The page called the engine. */
+  call: { arrow: '← page', color: '#2563eb' },
+  /** The engine told the page. */
+  emit: { arrow: '→ page', color: '#16a34a' },
+  /** Movi told the engine. */
+  event: { arrow: '⇐ movi', color: '#d97706' },
+  /** The engine's own account of what it is doing. */
+  info: { arrow: '· self', color: '#6b7280' },
+};
+/* eslint-enable lingui/no-unlocalized-strings */
+/** Said every frame or second, so at most once a second. */
+const NOISY = new Set(['position', 'timeUpdate', 'stats-text']);
+const lastLogged = new Map<string, number>();
 
-/** One `[movi]` line, filtered in the console by that prefix. */
-function moviDebug(event: string, data?: unknown): void {
-  if (!moviDebugging) return;
-  if (data === undefined) console.debug('[movi]', event);
-  else console.debug('[movi]', event, data);
+function log(channel: keyof typeof CHANNELS, name: string, data?: unknown) {
+  if (NOISY.has(name)) {
+    const now = performance.now();
+    if (now - (lastLogged.get(name) ?? -Infinity) < 1_000) return;
+    lastLogged.set(name, now);
+  }
+  const { arrow, color } = CHANNELS[channel];
+  const line = [
+    `%c[movi] ${arrow}%c ${name}`,
+    `color:${color};font-weight:bold`,
+    'color:inherit',
+  ];
+  console.debug(...line, ...(data === undefined ? [] : [data]));
 }
 
-const setLogLevel = () =>
-  Logger.setLevel(moviDebugging ? LogLevel.INFO : LogLevel.WARN);
+const moviDebug = (event: string, data?: unknown) => log('info', event, data);
+const moviCall = (name: string, data?: unknown) => log('call', name, data);
+
+/** An address without its query, which can carry a token. */
+function bare(url: string): string {
+  try {
+    const { origin, pathname } = new URL(url);
+    return origin + pathname;
+  } catch {
+    return '(invalid)';
+  }
+}
+
+const setLogLevel = () => Logger.setLevel(LogLevel.WARN);
 setLogLevel();
 
 const SUBTITLE_TYPES = ['srt', 'vtt', 'ass', 'ssa'];
@@ -343,12 +375,33 @@ class MoviEngine implements PlayerEngine {
 
   constructor(
     private readonly video: React.RefObject<HTMLVideoElement | null>,
-    private readonly emit: (event: EngineEvent) => void
+    private readonly send: (event: EngineEvent) => void
   ) {}
+
+  private emit = (event: EngineEvent): void => {
+    const { type, ...rest } = event;
+    log(
+      'emit',
+      type,
+      event.type === 'stats-text'
+        ? { chars: event.text?.length }
+        : Object.keys(rest).length
+          ? rest
+          : undefined
+    );
+    this.send(event);
+  };
 
   // ── Engine handlers ──
 
   load(file: EngineFile): void {
+    moviCall('load', {
+      startMs: file.startMs,
+      paused: !!file.paused,
+      subtitles: file.subtitles.length,
+      subtitleDelayMs: file.subtitleDelayMs,
+      volume: file.volume,
+    });
     this.file = file;
     this.intent = {
       positionMs: file.startMs,
@@ -372,6 +425,7 @@ class MoviEngine implements PlayerEngine {
   }
 
   close(): void {
+    moviCall('close');
     this.stop();
     clearInterval(this.statsTimer);
     this.statsTimer = 0;
@@ -381,6 +435,7 @@ class MoviEngine implements PlayerEngine {
   }
 
   setPaused(paused: boolean): void {
+    moviCall('setPaused', { paused });
     this.intent.paused = paused;
     const s = this.session;
     const p = s?.player;
@@ -394,10 +449,11 @@ class MoviEngine implements PlayerEngine {
   }
 
   seek(ms: number): void {
+    moviCall('seek', { ms: Math.round(ms) });
     this.intent.positionMs = ms;
     const s = this.session;
     const ready = s?.phase === 'ready';
-    moviDebug('seek', { ms: Math.round(ms), ready });
+    moviDebug('seek', { ready });
     if (!ready) return;
     void s.player?.seek(ms / 1000);
     // A seek while paused brings no time update to move the cue.
@@ -405,6 +461,7 @@ class MoviEngine implements PlayerEngine {
   }
 
   setVolume(volume: number, muted: boolean): void {
+    moviCall('setVolume', { volume, muted });
     this.intent.volume = { volume, muted };
     const p = this.session?.player;
     p?.setVolume(Math.min(1, volume));
@@ -412,6 +469,7 @@ class MoviEngine implements PlayerEngine {
   }
 
   setRate(rate: number): void {
+    moviCall('setRate', { rate });
     this.rate = rate;
     const s = this.session;
     s?.player?.setPlaybackRate(rate);
@@ -421,13 +479,14 @@ class MoviEngine implements PlayerEngine {
   }
 
   setAudio(id: string): void {
+    moviCall('setAudio', { id });
     this.intent.audio = id;
     this.session?.player?.selectAudioTrack(Number(id));
-    moviDebug('audio', { id });
     this.set({ audio: id });
   }
 
   setSubtitle(id: string | null): void {
+    moviCall('setSubtitle', { id });
     this.intent.subtitle = id;
     this.drawText();
     this.set({ subtitle: id });
@@ -454,20 +513,24 @@ class MoviEngine implements PlayerEngine {
   }
 
   setSubtitleDelay(ms: number): void {
+    moviCall('setSubtitleDelay', { ms });
     this.subs.delayMs = ms;
     this.session?.player?.setSubtitleDelay(ms / 1000);
-    moviDebug('subtitle-delay', { ms });
     this.drawText();
   }
 
   setStyle({ subtitleStyle, fit, lift }: EngineStyle): void {
+    moviCall('setStyle', { fit, lift, subtitleStyle: !!subtitleStyle });
     this.fit = fit;
     this.session?.player?.setFitMode(FIT[fit]);
     this.subtitleCss = subtitleStyle ? embeddedCss(subtitleStyle, lift) : '';
     if (this.surface) this.surface.sheet.textContent = this.subtitleCss;
   }
 
-  toggleFullscreen = toggleDocumentFullscreen;
+  toggleFullscreen = (): void => {
+    moviCall('toggleFullscreen');
+    toggleDocumentFullscreen();
+  };
 
   ownText(id: string): string | null {
     return this.subs.files.find((f) => f.id === id)?.text ?? null;
@@ -476,6 +539,7 @@ class MoviEngine implements PlayerEngine {
   subtitleFiles = {
     types: SUBTITLE_TYPES,
     add: async (added: File): Promise<void> => {
+      moviCall('subtitleFiles.add', { name: added.name, size: added.size });
       checkSubtitleFile(added, SUBTITLE_TYPES);
       const { text, cues: read } = await readSubtitleFile(added);
       const { subs } = this;
@@ -498,6 +562,7 @@ class MoviEngine implements PlayerEngine {
       { id: 'assessment', label: SMOOTHNESS_CHECK },
     ],
     show: (page: string | null): void => {
+      moviCall('stats.show', { page });
       clearInterval(this.statsTimer);
       this.statsTimer = 0;
       if (!page) return this.emit({ type: 'stats-text', text: undefined });
@@ -513,17 +578,24 @@ class MoviEngine implements PlayerEngine {
   // ── Movi handlers ──
 
   private bind(p: MoviPlayer): void {
-    p.on('stateChange', this.onStateChange);
-    p.on('timeUpdate', this.onTimeUpdate);
-    p.on('durationChange', this.onDurationChange);
-    p.on('tracksChange', this.onTracksChange);
-    p.on('ended', this.onEnded);
-    p.on('error', this.onError);
+    const on = <K extends keyof PlayerEventMap>(
+      event: K,
+      handler: (data: PlayerEventMap[K]) => void
+    ) =>
+      p.on(event, (data) => {
+        log('event', event, data instanceof Error ? String(data) : data);
+        handler(data);
+      });
+    on('stateChange', this.onStateChange);
+    on('timeUpdate', this.onTimeUpdate);
+    on('durationChange', this.onDurationChange);
+    on('tracksChange', this.onTracksChange);
+    on('ended', this.onEnded);
+    on('error', this.onError);
   }
 
   private onStateChange = (state: PlayerState): void => {
     const s = this.session!;
-    moviDebug('state', state);
     if (state === 'playing') {
       this.intent.paused = false;
       s.swallowPause = false;
@@ -613,8 +685,8 @@ class MoviEngine implements PlayerEngine {
     const url = await finalUrl(file.url, file.headers, s.abort.signal);
     if (!this.live(s)) return;
     moviDebug('load', {
-      url: file.url,
-      resolved: url,
+      url: bare(file.url),
+      resolved: bare(url),
       startMs: this.intent.positionMs,
       paused: this.intent.paused,
       headers: !!file.headers,
@@ -680,8 +752,7 @@ class MoviEngine implements PlayerEngine {
       renderer: 'canvas',
       decoder: software ? 'software' : 'auto',
     });
-    if (moviDebugging)
-      (window as unknown as { __movi?: MoviPlayer }).__movi = p;
+    (window as unknown as { __movi?: MoviPlayer }).__movi = p;
     return p;
   }
 
