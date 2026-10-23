@@ -31,10 +31,17 @@ const KEY_CODES: Record<number, string> = {
   212: 'ArrowDown',
   213: 'ArrowRight',
   214: 'ArrowLeft',
+  403: 'ColorF0Red',
+  404: 'ColorF1Green',
+  405: 'ColorF2Yellow',
+  406: 'ColorF3Blue',
   412: 'MediaRewind',
   413: 'MediaStop',
   415: 'MediaPlay',
   417: 'MediaFastForward',
+  427: 'ChannelUp',
+  428: 'ChannelDown',
+  457: 'Info',
   461: 'Back',
   10009: 'Back',
   10232: 'MediaTrackPrevious',
@@ -148,6 +155,15 @@ const labels = (): Record<string, string> => ({
   AudioVolumeMute: t`Mute key`,
   AudioVolumeUp: t`Volume up key`,
   AudioVolumeDown: t`Volume down key`,
+  /* eslint-disable lingui/no-unlocalized-strings -- the fork's own labels, left untranslated */
+  ColorF0Red: 'Red button',
+  ColorF1Green: 'Green button',
+  ColorF2Yellow: 'Yellow button',
+  ColorF3Blue: 'Blue button',
+  ChannelUp: 'Channel up',
+  ChannelDown: 'Channel down',
+  Info: 'Info button',
+  /* eslint-enable lingui/no-unlocalized-strings */
 });
 
 /** The parts of an input as a person reads them: `Shift+ArrowLeft` is Shift, ←. */
