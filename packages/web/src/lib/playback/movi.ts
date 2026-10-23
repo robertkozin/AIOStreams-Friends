@@ -96,6 +96,8 @@ const RECOVERIES = 2;
 /** Playing this long after a reopen means the stream is well again. */
 const RECOVERED_MS = 30_000;
 const STATS_MS = 1_000;
+/** A decoder error followed by this long without a new picture means the picture is gone. */
+const STALL_MS = 2_000;
 const BUFFER_MS = 1_000;
 
 type Assessment = Awaited<ReturnType<typeof MoviPlayer.assessPlayback>>;
@@ -200,9 +202,10 @@ const failedToStart = () =>
 
 const failedToDecode = () => "this browser couldn't decode this version";
 
-const failedToLoad = () => 'the stream stopped loading';
+const failedToDecodeInHardware = () =>
+  "this browser can't decode this video's picture in hardware. Try another browser, an external player or the desktop app.";
 
-const TRY_SOFTWARE = 'Try software decoding';
+const failedToLoad = () => 'the stream stopped loading';
 
 const SMOOTHNESS_CHECK = 'Smoothness check';
 
@@ -288,7 +291,6 @@ interface PageSubtitles {
 interface Recovery {
   count: number;
   at: number;
-  softwareTried: boolean;
 }
 
 /** One `MoviPlayer`, from open() to stop(). */
@@ -300,6 +302,8 @@ interface Session {
   phase: 'resolving' | 'loading' | 'ready';
   /** Movi passes through a pause on its way to the first frame, which isn't the user's. */
   swallowPause: boolean;
+  /** A picture check after a decoder error is pending. */
+  watchingPicture: boolean;
   /** Movi reports time only while playing, so a paused bar is refreshed on this. */
   bufferTimer: number;
   openedAt: number;
@@ -357,7 +361,7 @@ class MoviEngine implements PlayerEngine {
     files: [],
     shownText: '',
   };
-  private recovery: Recovery = { count: 0, at: -1, softwareTried: false };
+  private recovery: Recovery = { count: 0, at: -1 };
 
   // Session lifetime: from open() until stop().
   private session: Session | null = null;
@@ -409,7 +413,7 @@ class MoviEngine implements PlayerEngine {
       files: [],
       shownText: this.subs.shownText,
     };
-    this.recovery = { count: 0, at: -1, softwareTried: false };
+    this.recovery = { count: 0, at: -1 };
     document.removeEventListener('fullscreenchange', this.onFullscreen);
     document.addEventListener('fullscreenchange', this.onFullscreen);
     this.onFullscreen();
@@ -591,6 +595,8 @@ class MoviEngine implements PlayerEngine {
     if (state === 'playing') {
       this.intent.paused = false;
       s.swallowPause = false;
+      // Not from inside Movi's own emit.
+      queueMicrotask(() => this.live(s) && this.requireHardware(s));
       this.set({ started: true, paused: false, waiting: false });
     } else if (state === 'paused') {
       // While loading, the pause wanted is what resume() ends on.
@@ -639,22 +645,24 @@ class MoviEngine implements PlayerEngine {
   /**
    * Only a ready session acts: while loading, the rejection of load() reports
    * the same error. Movi also reports errors it recovers from (the audio
-   * decoder, the software video decoder), after which its state isn't `error`.
+   * decoder, the software video decoder) and the hardware video decoder
+   * giving up, none of which move its state to `error`; of those, only a
+   * picture that then stops is a failure.
    */
   private onError = (error: Error): void => {
     const s = this.session!;
-    if (s.phase !== 'ready' || s.player?.getState() !== 'error')
-      return moviDebug('error-ignored', {
-        message: error?.message,
-        phase: s.phase,
-        state: s.player?.getState(),
-      });
-    this.handleFailure(error);
+    const p = s.player;
+    if (s.phase !== 'ready' || !p)
+      return moviDebug('error-ignored', { phase: s.phase });
+    if (p.getState() === 'error') return this.handleFailure(error);
+    if (this.requireHardware(s)) return;
+    moviDebug('error-recoverable', { message: error?.message });
+    this.watchPicture(s, p, error);
   };
 
   // ── Internal helpers: lifecycle ──
 
-  private async open({ software = false, reopen = false } = {}): Promise<void> {
+  private async open({ reopen = false } = {}): Promise<void> {
     this.stop();
     const file = this.file!;
     const s: Session = {
@@ -662,6 +670,7 @@ class MoviEngine implements PlayerEngine {
       abort: new AbortController(),
       phase: 'resolving',
       swallowPause: !this.intent.paused,
+      watchingPicture: false,
       bufferTimer: 0,
       openedAt: 0,
       assessment: null,
@@ -682,10 +691,9 @@ class MoviEngine implements PlayerEngine {
       startMs: this.intent.positionMs,
       paused: this.intent.paused,
       headers: !!file.headers,
-      software,
       reopen,
     });
-    const p = this.createPlayer(file, url, surface.canvas, software);
+    const p = this.createPlayer(file, url, surface.canvas);
     s.player = p;
     s.openedAt = performance.now();
     this.bind(p);
@@ -701,7 +709,7 @@ class MoviEngine implements PlayerEngine {
         error instanceof Error ? error : new Error(String(error))
       );
     }
-    if (!this.live(s)) return;
+    if (!this.live(s) || this.requireHardware(s)) return;
     this.announceOpened(s, p, reopen);
     await this.resume(s, p);
   }
@@ -735,14 +743,13 @@ class MoviEngine implements PlayerEngine {
   private createPlayer(
     file: EngineFile,
     url: string,
-    canvas: HTMLCanvasElement,
-    software: boolean
+    canvas: HTMLCanvasElement
   ): MoviPlayer {
     const p = new MoviPlayer({
       source: { type: 'url', url, headers: file.headers },
       canvas,
       renderer: 'canvas',
-      decoder: software ? 'software' : 'auto',
+      decoder: 'auto',
     });
     (window as unknown as { __movi?: MoviPlayer }).__movi = p;
     return p;
@@ -947,7 +954,6 @@ class MoviEngine implements PlayerEngine {
       network,
       recoveries: recovery.count,
       positionMs: Math.round(at),
-      software: player?.isSoftwareDecoding(),
       stats: player?.getStats(),
     });
     if (network && recovery.count < RECOVERIES) {
@@ -969,20 +975,44 @@ class MoviEngine implements PlayerEngine {
         },
       });
     }
-    if (recovery.softwareTried) return this.fail(failedToDecode());
-    this.fail(failedToDecode(), {
-      label: TRY_SOFTWARE,
-      run: () => {
-        this.recovery.softwareTried = true;
-        moviDebug('retry', { software: true, positionMs: at });
-        this.reopen(true);
-      },
-    });
+    this.fail(failedToDecode());
   }
 
   /** From the intent, which handleFailure filled with where the last player stood. */
-  private reopen(software = false): void {
-    void this.open({ software, reopen: true });
+  private reopen(): void {
+    void this.open({ reopen: true });
+  }
+
+  /**
+   * Video plays on the hardware decoder only; the software one can't keep up.
+   * Movi falls back to it, at load or after the hardware decoder fails, so
+   * this fails the player when it has.
+   */
+  private requireHardware(s: Session): boolean {
+    const p = s.player;
+    if (!p?.isSoftwareDecoding()) return false;
+    moviDebug('software-video', { reason: p.softwareDecodeReason() });
+    this.stop();
+    this.fail(failedToDecodeInHardware());
+    return true;
+  }
+
+  /** The audio keeps playing when the video decoder gives up, so look at the picture. */
+  private watchPicture(s: Session, p: MoviPlayer, error: Error): void {
+    const before = p.getRenderHealth()?.framesPresented;
+    if (before === undefined || s.watchingPicture) return;
+    s.watchingPicture = true;
+    window.setTimeout(() => {
+      if (!this.live(s)) return;
+      s.watchingPicture = false;
+      if (
+        p.getState() !== 'playing' ||
+        p.getRenderHealth()?.framesPresented !== before
+      )
+        return;
+      moviDebug('picture-stalled', { message: error?.message });
+      this.handleFailure(error);
+    }, STALL_MS);
   }
 
   private fail(error: string, retry?: { label: string; run(): void }): void {
