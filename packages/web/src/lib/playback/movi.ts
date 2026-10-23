@@ -7,11 +7,13 @@ import {
   type PlayerState,
   type Track as MoviTrack,
 } from 'movi-player/element/slim';
-import type { VideoFit } from '../settings';
+import type { SubtitleStyle, VideoFit } from '../settings';
 import { clock } from '../format';
 import { sameLanguage } from '../languages';
 import { parseCues, type SubtitleCue } from '../subtitles/cues';
 import { checkSubtitleFile, readSubtitleFile } from '../subtitles/files';
+import { storage } from '../storage';
+import { subtitleCss, subtitleLine, subtitleScale } from '../subtitles/style';
 import type { MediaStream } from '../types';
 import { ofType, ownTrackLabel, trackLabel } from './controller';
 import type {
@@ -24,9 +26,24 @@ import type {
   PlayerEngine,
 } from './engine';
 import { isFullscreen, toggleDocumentFullscreen } from './fullscreen';
-import { moviDebug, moviDebugging } from './movi-debug';
-import { embeddedCss, textAt } from './movi-subtitles';
 import type { TimeRange } from './playhead';
+
+// ── Debug ──
+
+/**
+ * Whether the movi engine says what it does in the console: in a dev build,
+ * or once `localStorage['aiostreams-movi-debug'] = '1'` and the page reloads.
+ */
+const moviDebugging =
+  process.env.NODE_ENV !== 'production' ||
+  !!storage.get<unknown>('aiostreams-movi-debug');
+
+/** One `[movi]` line, filtered in the console by that prefix. */
+function moviDebug(event: string, data?: unknown): void {
+  if (!moviDebugging) return;
+  if (data === undefined) console.debug('[movi]', event);
+  else console.debug('[movi]', event, data);
+}
 
 const setLogLevel = () =>
   Logger.setLevel(moviDebugging ? LogLevel.INFO : LogLevel.WARN);
@@ -161,6 +178,65 @@ const failedToLoad = () => 'the stream stopped loading';
 const TRY_SOFTWARE = 'Try software decoding';
 
 const SMOOTHNESS_CHECK = 'Smoothness check';
+/* eslint-enable lingui/no-unlocalized-strings */
+
+// ── Page subtitles ──
+
+const TAGS = /<[^>]*>|\{[^}]*\}/g;
+
+/** Cue text as the page shows it, without markup. */
+const plainText = (text: string) =>
+  text.replace(/\\N/gi, '\n').replace(/\\h/g, ' ').replace(TAGS, '').trim();
+
+/** The text showing at `ms`, one line per cue. */
+export function textAt(cues: readonly SubtitleCue[], ms: number): string {
+  let text = '';
+  for (const cue of cues) {
+    if (cue.startMs > ms) break;
+    if (ms >= cue.endMs) continue;
+    const line = plainText(cue.text);
+    if (line) text = text ? `${text}\n${line}` : line;
+  }
+  return text;
+}
+
+const OVERLAY = '[data-ui="player-subtitle-embedded"]';
+
+/* eslint-disable lingui/no-unlocalized-strings -- CSS */
+/**
+ * Movi's look for the subtitles it draws lives in its element's stylesheet,
+ * which a bare player doesn't have, so these are styled and placed as the
+ * page draws its own. Movi sets the overlay's padding and centres a line by
+ * padding its row from a measurement of its own font; both are overruled,
+ * the padding so it sits as high as the page's, from the bottom of the window
+ * rather than the picture, and changes at once. A bitmap's scale is the one
+ * part of the style it can take.
+ */
+export function embeddedCss(style: SubtitleStyle, lift: number): string {
+  const css = subtitleCss(style);
+  const scale = subtitleScale(style);
+  return `${OVERLAY} {
+    padding-bottom: ${100 - subtitleLine(style, lift)}vh !important;
+    --movi-sub-size-mult: ${scale};
+  }
+  ${OVERLAY} .movi-subtitle-anchor {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0 5% !important;
+    text-align: center !important;
+  }
+  ${OVERLAY} .movi-subtitle-line {
+    width: fit-content;
+    margin-inline: auto;
+    padding: 0 0.5rem;
+    font-size: calc(${scale} * 5vh);
+    font-weight: ${css.fontWeight};
+    color: ${css.color};
+    background-color: ${css.backgroundColor};
+    text-shadow: ${css.textShadow};
+    ${css.fontFamily ? `font-family: ${css.fontFamily};` : ''}
+  }`;
+}
 /* eslint-enable lingui/no-unlocalized-strings */
 
 // ── Types for the three lifetimes ──
