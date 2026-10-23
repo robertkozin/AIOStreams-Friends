@@ -26,6 +26,7 @@ import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
 import { moviEngine } from '../lib/playback/movi';
+import { videoEngine } from '../lib/playback/video';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -556,7 +557,11 @@ function Player({
     },
     [local]
   );
-  const own = usePlayer(hostPlayer ?? moviEngine(video), {
+  const isPlainBrowser = currentHost().name === 'browser';
+  const fallbackEngine = isPlainBrowser
+    ? moviEngine(video)
+    : videoEngine(video);
+  const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
     url: local?.local

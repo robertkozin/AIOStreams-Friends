@@ -44,6 +44,10 @@ const ASSET_PREFIX = '/jellyfin-web/';
 
 const WEB_PAGE = /^\/jellyfin(\/.*)?\/web(\/(index\.html)?)?(\?|$)/i;
 
+/** What the dev server answers itself at the root: the page, its assets and hot reload. */
+const DEV_SERVER_PATH =
+  /^(\/|\/web(\/index\.html)?\/?|\/jellyfin-web\/.*|\/rsbuild-hmr)$/i;
+
 /** The icons a server would otherwise serve from its root. */
 const BUNDLED_ICONS = [
   'logo.png',
@@ -107,9 +111,10 @@ export default defineConfig(({ envMode }) => {
     dev: { assetPrefix: ASSET_PREFIX },
     server: {
       port: devServerPort,
-      proxy: {
-        '/api': backendBaseUrl,
-        '/jellyfin': {
+      proxy: [
+        { pathFilter: '/api', target: backendBaseUrl },
+        {
+          pathFilter: '/jellyfin',
           target: backendBaseUrl,
           // The context matches by prefix, so it also catches this app's own assets.
           bypass: (req) => {
@@ -118,11 +123,22 @@ export default defineConfig(({ envMode }) => {
             return WEB_PAGE.test(url) ? '/index.html' : undefined;
           },
         },
-        '/logo.png': backendBaseUrl,
-        '/favicon.ico': backendBaseUrl,
-        '/icon0.svg': backendBaseUrl,
-        '/apple-icon.png': backendBaseUrl,
-      },
+        {
+          pathFilter: [
+            '/logo.png',
+            '/favicon.ico',
+            '/icon0.svg',
+            '/apple-icon.png',
+          ],
+          target: backendBaseUrl,
+        },
+        // Jellyfin on the site root: everything the dev server doesn't answer itself.
+        {
+          pathFilter: (pathname) => !DEV_SERVER_PATH.test(pathname),
+          target: backendBaseUrl,
+          ws: true,
+        },
+      ],
     },
   };
 });
