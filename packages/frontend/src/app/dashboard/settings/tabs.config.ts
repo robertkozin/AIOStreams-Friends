@@ -130,6 +130,14 @@ const RECHECK_FIELDS: Record<string, VisibilityRule> = {
   ],
 };
 
+/** The remux's settings only matter while it is on. */
+const HLS_ON: Visibility = { key: 'usenet.hls.enabled', equals: true };
+const HLS_FIELDS: Record<string, VisibilityRule> = {
+  'usenet.hls.ffmpegPath': HLS_ON,
+  'usenet.hls.segmentDuration': HLS_ON,
+  'usenet.hls.cacheBytes': HLS_ON,
+};
+
 /** The hold timeout only matters while the census hold is on. */
 const CENSUS_HOLD_FIELDS: Record<string, VisibilityRule> = {
   'usenet.arrCensusHoldTimeout': {
@@ -220,7 +228,11 @@ export const TAB_MANIFEST: Record<string, Omit<TabDef, 'section'>> = {
 
   // --- the usenet engine, and what only exists because of it ----------------
   usenet: {
-    fieldVisibility: { ...RECHECK_FIELDS, ...CENSUS_HOLD_FIELDS },
+    fieldVisibility: {
+      ...RECHECK_FIELDS,
+      ...CENSUS_HOLD_FIELDS,
+      ...HLS_FIELDS,
+    },
     label: 'Usenet',
     icon: BiCloudDownload,
     group: 'Usenet',
@@ -300,6 +312,15 @@ export const TAB_MANIFEST: Record<string, Omit<TabDef, 'section'>> = {
           'usenet.recheck.sampleSegments',
           'usenet.recheck.concurrency',
           'usenet.recheck.batchSize',
+        ],
+      },
+      {
+        title: 'HLS remux',
+        keys: [
+          'usenet.hls.enabled',
+          'usenet.hls.ffmpegPath',
+          'usenet.hls.segmentDuration',
+          'usenet.hls.cacheBytes',
         ],
       },
     ],

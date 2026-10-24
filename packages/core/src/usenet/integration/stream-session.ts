@@ -4,6 +4,7 @@ import { createLogger } from '../../logging/logger.js';
 import { DebridError } from '../../debrid/base.js';
 import {
   ArticleNotFoundError,
+  CommandPriority,
   NotStreamableError,
   definitiveLossKind,
   deserializeArchiveLayout,
@@ -123,6 +124,26 @@ function streamSessionKey(token: UsenetStreamToken): string {
 }
 
 const streamSessions = new Map<string, UsenetStreamSession>();
+/** Told when the damage policy fails a target, so data read from it can go. */
+const failedListeners = new Map<string, Set<() => void>>();
+
+/**
+ * Calls `listener` if the damage policy fails this target: data already read
+ * from it may be bad. Returns the unsubscribe.
+ */
+export function onUsenetStreamFailed(
+  token: UsenetStreamToken,
+  listener: () => void
+): () => void {
+  const key = streamSessionKey(token);
+  let set = failedListeners.get(key);
+  if (!set) failedListeners.set(key, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (!set.size) failedListeners.delete(key);
+  };
+}
 /** Single-flight in-flight opens so concurrent first requests open once. */
 const openingSessions = new Map<string, Promise<UsenetStreamSession>>();
 /** Idle TTL for a warm session; comfortably below the 5-min engine idle evict. */
@@ -384,6 +405,7 @@ function holeHooksFor(
     // Drop the warm session so a player retry re-opens fresh and sees the
     // failed entry.
     streamSessions.delete(sessionKey);
+    for (const listener of failedListeners.get(sessionKey) ?? []) listener();
     return 'fail';
   };
 
@@ -690,6 +712,8 @@ export interface OpenUsenetStreamOptions {
   clientIp?: string;
   /** Opened through the share tree (FUSE/NFS/WebDAV): no connection caps. */
   share?: boolean;
+  /** Low for a read no player is waiting on, such as a remux rendering ahead. */
+  priority?: CommandPriority;
 }
 
 export async function openNativeUsenetStream(
@@ -810,7 +834,10 @@ export async function openUsenetStream(
   // A suffix range's position is only known now that the size is.
   handle.setInfo({ size, filename, start });
 
-  let stream = session.stream.createReadStream({ start, end }, opts.signal);
+  let stream = session.stream.createReadStream(
+    { start, end, priority: opts.priority },
+    opts.signal
+  );
   if (session.matroska && appConfig.usenet.matroskaHoleFill) {
     stream = wrapMatroskaHoleFill(stream, {
       startOffset: start,

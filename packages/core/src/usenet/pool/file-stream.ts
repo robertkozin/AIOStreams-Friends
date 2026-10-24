@@ -38,8 +38,9 @@ export interface SeekableStream {
   readonly filename?: string;
   size(): number;
   open(signal?: AbortSignal): Promise<void>;
+  /** `priority` Low marks a read nobody is waiting on; it yields to players. */
   createReadStream(
-    range?: { start?: number; end?: number },
+    range?: { start?: number; end?: number; priority?: CommandPriority },
     signal?: AbortSignal
   ): Readable;
   readAt(offset: number, length: number): Promise<Buffer>;
@@ -387,7 +388,7 @@ export class FileStream implements SeekableStream {
    * Serve a half-open byte range [start, end). `end` defaults to file size.
    */
   createReadStream(
-    range?: { start?: number; end?: number },
+    range?: { start?: number; end?: number; priority?: CommandPriority },
     signal?: AbortSignal
   ): Readable {
     if (!this.opened) {
@@ -406,13 +407,19 @@ export class FileStream implements SeekableStream {
     }
 
     // Find the segment containing `start`.
-    return this.openRangeStream(start, length, signal);
+    return this.openRangeStream(
+      start,
+      length,
+      signal,
+      range?.priority ?? CommandPriority.High
+    );
   }
 
   private openRangeStream(
     start: number,
     length: number,
-    signal?: AbortSignal
+    signal: AbortSignal | undefined,
+    priority: CommandPriority
   ): Readable {
     // Deferred passthrough: do the (async) interpolation search, then wire up a
     // SegmentsStream. We use a PassThrough-like Readable that begins emitting
@@ -478,7 +485,7 @@ export class FileStream implements SeekableStream {
           ),
           skipBytes: start - segmentStartByte,
           limitBytes: length,
-          priority: CommandPriority.High,
+          priority,
           slotBank: this.pool.slotBank,
           signal,
         });

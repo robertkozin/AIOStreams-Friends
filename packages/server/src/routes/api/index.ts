@@ -20,3 +20,4 @@ export { default as usenetApi } from './usenet.js';
 export { default as jellyfinApi } from './jellyfin.js';
 export { default as mediaInfoApi } from './media-info.js';
 export { default as reportsApi } from './reports.js';
+export { default as hlsApi } from './hls.js';

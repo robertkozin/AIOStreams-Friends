@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@rimjoeh/mkv-remuxer@0.1.4': fb8cfc272f84d2c7f49dcf8f6e7d80ff818cb14e83ab3190ef623fe18d3d3dc4
   stremthru: 5d59636029f2455cfc103c8b8206ce24ff67c7f7f77e6fb8ea3f65dca52105dd
   yencode@1.2.4: 789de3a1a93eb2db8c8833260e74c663adee24df0e3dff0bddd220a6f4c4b31f
 
@@ -39,6 +40,9 @@ importers:
       '@aiostreams/crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@rimjoeh/mkv-remuxer':
+        specifier: 0.1.4
+        version: 0.1.4(patch_hash=fb8cfc272f84d2c7f49dcf8f6e7d80ff818cb14e83ab3190ef623fe18d3d3dc4)
       '@torbox/torbox-api':
         specifier: github:viren070/torbox-sdk-js#dist
         version: https://codeload.github.com/viren070/torbox-sdk-js/tar.gz/82fb4eb14ccd3a0372fb445f796fa49527960cdd
@@ -676,6 +680,9 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
         version: 7.1.1(eslint@10.13.0(jiti@2.7.0))
+      hls.js:
+        specifier: 1.7.3
+        version: 1.7.3
       motion:
         specifier: ^12.43.0
         version: 12.43.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2350,6 +2357,10 @@ packages:
         optional: true
       react-redux:
         optional: true
+
+  '@rimjoeh/mkv-remuxer@0.1.4':
+    resolution: {integrity: sha512-lbwxW2U9wzhV6uZUpRTzBHQQoFWGbw+L+n1O4Ja5Rw40me4bypq/SyyYAQ6jnhpKVEq4Q85VaqHWpFZpit8lag==}
+    engines: {node: '>=22'}
 
   '@rolldown/binding-android-arm-eabi@1.2.13':
     resolution: {integrity: sha512-Vu/NICrgdRvUOeaJZIyB2FP63s6fO/4ud5l8dXmxDx9yDyn+mN0y+gsvsVviSli+T361Aqo0h46EuMoobrwawA==}
@@ -7296,7 +7307,6 @@ packages:
 
   shaka-player@4.16.53:
     resolution: {integrity: sha512-XrOjsMMv/lIn1rlKl7shlw+QtO+DseiHvpKryCeR36EaIVCfQ50YZnbOr3ZqM7mBDkYx1vo1MaV6xPG5P4vbxg==}
-    engines: {node: '>=18'}
 
   sharp@0.35.5:
     resolution: {integrity: sha512-Ywn4OnzGukp7CDMrp08RQ50YKmuwG47brZgIVPTvBaaAfQlRlygrRqSrxdCiL9M+LlzLBiJ68IR1QqvzHyjC7g==}
@@ -9754,6 +9764,8 @@ snapshots:
       react: 19.3.0
       react-redux: 9.3.0(@types/react@19.3.0)(react@19.3.0)(redux@5.0.1)
 
+  '@rimjoeh/mkv-remuxer@0.1.4(patch_hash=fb8cfc272f84d2c7f49dcf8f6e7d80ff818cb14e83ab3190ef623fe18d3d3dc4)': {}
+
   '@rolldown/binding-android-arm-eabi@1.2.13':
     optional: true
 
@@ -12138,7 +12150,7 @@ snapshots:
       eslint: 10.12.0(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.12.0(jiti@2.7.0))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@10.12.0(jiti@2.7.0))
       eslint-plugin-react: 7.37.5(eslint@10.12.0(jiti@2.7.0))
       eslint-plugin-react-hooks: 7.1.1(eslint@10.12.0(jiti@2.7.0))
@@ -12171,7 +12183,7 @@ snapshots:
       tinyglobby: 0.2.17
       unrs-resolver: 1.12.2
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.12.0(jiti@2.7.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -12186,7 +12198,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0)))(eslint@10.12.0(jiti@2.7.0)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@10.12.0(jiti@2.7.0)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.2.0

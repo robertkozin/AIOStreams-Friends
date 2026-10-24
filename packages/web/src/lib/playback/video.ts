@@ -38,11 +38,27 @@ interface FileTrack {
 }
 
 /**
+ * Puts a file's address on the video and returns what takes it off again; by
+ * default the video opens it itself.
+ */
+export type Attach = (
+  video: HTMLVideoElement,
+  file: EngineFile,
+  fail: (error: string) => void
+) => () => void;
+
+const attachSrc: Attach = (video, file) => {
+  video.src = file.url;
+  return () => {};
+};
+
+/**
  * The page's own `<video>`. The server's subtitles are `<track>`s, and files
  * the user adds are text tracks after them.
  */
 export function videoEngine(
-  video: React.RefObject<HTMLVideoElement | null>
+  video: React.RefObject<HTMLVideoElement | null>,
+  attach: Attach = attachSrc
 ): EngineFactory {
   return (emit) => {
     let file: EngineFile | null = null;
@@ -51,6 +67,7 @@ export function videoEngine(
     let delayMs = 0;
     let line = subtitleLine();
     let detach = () => {};
+    let unattach = () => {};
     // A text track's cues load late, so each one remembers the shift it has.
     const shifted = new WeakMap<TextTrack, number>();
     // Browsers disagree on where a cue the file leaves unplaced goes.
@@ -205,12 +222,15 @@ export function videoEngine(
         onFullscreen();
         el.autoplay = !next.paused;
         if (next.paused) set({ paused: true });
-        el.src = next.url;
+        unattach();
+        unattach = attach(el, next, (error) => emit({ type: 'failed', error }));
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
       close() {
         detach();
         detach = () => {};
+        unattach();
+        unattach = () => {};
         removeElements();
         const el = video.current;
         if (!el) return;
