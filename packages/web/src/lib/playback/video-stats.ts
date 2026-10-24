@@ -21,7 +21,6 @@ export interface VideoStatsInput {
   video: HTMLVideoElement;
   mode: VideoMode;
   hls: Hls | null;
-  url: string;
   /** Times the stream was reopened where it was, for a track or a failure. */
   reopens: number;
   lastFragment?: FragmentLoad;
@@ -58,15 +57,16 @@ function playerLine({ mode, hls }: VideoStatsInput): string {
         hls?.config.preferManagedMediaSource !== false
           ? 'Managed Media Source'
           : 'Media Source';
-      const why = {
-        'no native HLS': 'the browser has no HLS of its own',
-        'native failed': "the browser's own HLS failed",
-        subtitle: "a subtitle the browser's own HLS can't show",
-      }[mode.why];
-      return `HLS, in hls.js ${Hls.version} over ${source} (${why})`;
+      return `HLS, in hls.js ${Hls.version} over ${source}`;
     }
   }
 }
+
+const HLSJS_REASONS = {
+  'no native HLS': 'the browser has no HLS of its own',
+  'native failed': "the browser's own HLS failed",
+  subtitle: "a subtitle the browser's own HLS can't show",
+};
 
 /** Seconds buffered from the play position on, in the range holding it. */
 function bufferedAhead(video: HTMLVideoElement): number {
@@ -81,7 +81,8 @@ function bufferedAhead(video: HTMLVideoElement): number {
 export function videoStatsText(input: VideoStatsInput): string {
   const { video, hls, mode } = input;
   const lines: [string, string][] = [['Player', playerLine(input)]];
-  lines.push(['Address', new URL(input.url, location.href).pathname]);
+  if (mode.kind === 'hlsjs')
+    lines.push(['Player reason', HLSJS_REASONS[mode.why]]);
   if (input.reopens) lines.push(['Reopened', String(input.reopens)]);
 
   if (video.videoWidth)

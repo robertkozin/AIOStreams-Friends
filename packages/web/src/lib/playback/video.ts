@@ -520,7 +520,6 @@ export function videoEngine(
         mode:
           mode === 'hlsjs' ? { kind: 'hlsjs', why: hlsWhy } : { kind: mode },
         hls,
-        url: file.url,
         reopens,
         lastFragment,
         nativeAudioIndex:
