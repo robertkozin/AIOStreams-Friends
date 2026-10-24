@@ -68,6 +68,20 @@ const playsHlsNatively = (el: HTMLVideoElement) =>
  */
 const nativeSwitchesTracks = () => 'audioTracks' in HTMLMediaElement.prototype;
 
+/** The audio track the server makes an HLS address's default, by Jellyfin index. */
+const AUDIO_INDEX = 'AudioStreamIndex';
+
+const audioIndexOf = (url: string) => {
+  const index = new URL(url, location.href).searchParams.get(AUDIO_INDEX);
+  return index === null ? undefined : Number(index);
+};
+
+const withAudioIndex = (url: string, index: number) => {
+  const next = new URL(url, location.href);
+  next.searchParams.set(AUDIO_INDEX, String(index));
+  return next.toString();
+};
+
 const isHls = (url: string) =>
   new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
 
@@ -86,7 +100,6 @@ export function videoEngine(
     let hls: Hls | null = null;
     let mode: 'file' | 'native' | 'hlsjs' = 'file';
     // Picked in native HLS, for hls.js to apply once it lists its tracks.
-    let pendingAudio: number | undefined;
     let pendingSubtitle: number | undefined;
     let subtitleId: string | null = null;
     let elements: HTMLTrackElement[] = [];
@@ -152,14 +165,17 @@ export function videoEngine(
           s.DeliveryMethod === 'Embed' &&
           s.IsTextSubtitleStream
       );
-    // The playlist's default, which is the version's.
-    const nativeAudio = () =>
-      Math.max(
+    // The playlist's default: the one its address asks the server for, else
+    // the version's.
+    const nativeAudio = () => {
+      const index =
+        (file && audioIndexOf(file.url)) ??
+        file?.source.DefaultAudioStreamIndex;
+      return Math.max(
         0,
-        sourceAudio().findIndex(
-          (s) => s.Index === file?.source.DefaultAudioStreamIndex
-        )
+        sourceAudio().findIndex((s) => s.Index === index)
       );
+    };
     const listTracks = () => {
       const audio = video.current && audioTracksOf(video.current);
       const audioTracks: AudioTrack[] = hls
@@ -285,11 +301,7 @@ export function videoEngine(
       player.subtitleDisplay = false;
       hls = player;
       let recovered = false;
-      player.on(Events.AUDIO_TRACKS_UPDATED, () => {
-        if (pendingAudio !== undefined) player.audioTrack = pendingAudio;
-        pendingAudio = undefined;
-        listTracks();
-      });
+      player.on(Events.AUDIO_TRACKS_UPDATED, listTracks);
       player.on(Events.AUDIO_TRACK_SWITCHED, listTracks);
       player.on(Events.SUBTITLE_TRACKS_UPDATED, () => {
         if (pendingSubtitle !== undefined) {
@@ -433,28 +445,34 @@ export function videoEngine(
         : attachFile(el, next);
     };
     /**
-     * Reopens the playlist in hls.js where native HLS is, for what native
-     * HLS can't do: a track it can't switch to, or a stream it failed on.
+     * Reopens native HLS where it is: in hls.js, for a subtitle it can't
+     * show or a stream it failed on, or at another address, for an audio
+     * track it can't switch to.
      */
-    const toHlsJs = (): boolean => {
+    const reopen = (
+      changes: Partial<EngineFile>,
+      forceHlsJs: boolean
+    ): boolean => {
       const el = video.current;
-      if (!el || !file || mode !== 'native' || !Hls.isSupported()) return false;
+      if (!el || !file || mode !== 'native') return false;
+      if (forceHlsJs && !Hls.isSupported()) return false;
       const keep = subtitleId;
       open(
         {
           ...file,
+          ...changes,
           startMs: el.currentTime > 0 ? el.currentTime * 1000 : file.startMs,
           paused: el.paused,
         },
-        true
+        forceHlsJs
       );
       if (keep && !keep.startsWith(HLS_SUBTITLE)) setSubtitle(keep);
       return true;
     };
+    const toHlsJs = () => reopen({}, true);
 
     return {
       load(next) {
-        pendingAudio = undefined;
         pendingSubtitle = undefined;
         subtitleId = null;
         open(next, false);
@@ -502,16 +520,18 @@ export function videoEngine(
           set({ audio: id });
           return;
         }
-        // Native HLS that can't switch the playlist's audio: hls.js can.
+        // Native HLS that can't switch the playlist's audio plays the
+        // default, so it reopens where it is with the pick as the default.
         if (
           mode !== 'native' ||
           nativeSwitchesTracks() ||
           Number(id) === nativeAudio()
         )
           return;
-        pendingAudio = Number(id);
-        if (toHlsJs()) set({ audio: id });
-        else pendingAudio = undefined;
+        const index = sourceAudio()[Number(id)]?.Index;
+        if (index === undefined || index === null || !file) return;
+        if (reopen({ url: withAudioIndex(file.url, index) }, false))
+          set({ audio: id });
       },
       setSubtitle,
       setSubtitleDelay(ms) {
