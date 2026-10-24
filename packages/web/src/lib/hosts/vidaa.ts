@@ -62,8 +62,6 @@ function create(): Host | null {
     name: 'vidaa',
     tv: true,
     device,
-    // Its own player opens MKV, with the AC-3 and DTS that HLS would convert.
-    playsFiles: true,
     // Back from Home, once it has moved into the navigation, leaves the app.
     back: () => {
       if (!document.querySelector('[data-page="home"]:not([inert])'))

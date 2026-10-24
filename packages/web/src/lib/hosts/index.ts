@@ -59,11 +59,6 @@ export interface Host {
   device?(): { id?: string; name?: string } | null;
   /** A player drawn beneath the page, in place of the page's own video. */
   player?: EngineFactory;
-  /**
-   * The page's own video opens MKV and the codecs releases carry, so versions
-   * play as files rather than the server's HLS remux.
-   */
-  playsFiles?: boolean;
   playerFeatures?: readonly PlayerFeature[];
   /** The app's own player takes over from the page and plays on through the `next` item ids. */
   play?(

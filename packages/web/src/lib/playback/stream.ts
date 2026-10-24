@@ -34,7 +34,21 @@ export function directUrl(
     : streamUrl(client, itemId, source);
 }
 
-/** The version's HLS remux, when the server offers one. */
+/**
+ * The one place a version is given HLS rather than its file: the server's
+ * HLS remux, which every browser and TV plays, when the server offers one.
+ * Players the app draws itself (mpv, ExoPlayer, AVPlay) open the file.
+ */
+export function hlsFor(
+  client: JellyfinClient,
+  source: SourceInfo,
+  opts: { hostPlayer: boolean }
+): string | null {
+  if (opts.hostPlayer) return null;
+  return hlsUrl(client, source);
+}
+
+/** The version's HLS remux link, when the server offers one. */
 export function hlsUrl(
   client: JellyfinClient,
   source: SourceInfo
@@ -45,23 +59,6 @@ export function hlsUrl(
   const query = Object.fromEntries(new URLSearchParams(search));
   delete query.api_key;
   return client.url(path, { ...query, ApiKey: client.token });
-}
-
-/**
- * What the page's own video opens: the HLS remux, which every browser and
- * TV plays, unless this device's video opens the file itself (as the VIDAA
- * projector does) or the version has none. Players the app draws itself, and
- * players opened by link, take the file.
- */
-export function pageUrl(
-  client: JellyfinClient,
-  itemId: string,
-  source: SourceInfo
-): { url: string; hls: boolean } {
-  const hls = currentHost().playsFiles ? null : hlsUrl(client, source);
-  return hls
-    ? { url: hls, hls: true }
-    : { url: directUrl(client, itemId, source), hls: false };
 }
 
 export function requiredHeaders(

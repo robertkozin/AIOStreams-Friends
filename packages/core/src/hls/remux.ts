@@ -37,6 +37,12 @@ const FFMPEG_PATH = 'ffmpeg';
 const SEGMENT_SECONDS = 6;
 const SEGMENT_CACHE_BYTES = 10 * 1000 ** 3;
 const METADATA_CACHE_BYTES = 500 * 1000 ** 2;
+/**
+ * How long a segment rendered ahead may stay unfinished before it is given
+ * up, unless a player asks for it. The library's 5 s (raised to a segment
+ * plus one) leaves a slow read or a queued job little room.
+ */
+const KEEP_WARM_SECONDS = 15;
 /** A viewer that asks for nothing this long has stopped, or paused. */
 const VIEWER_IDLE_MS = 60_000;
 /** Files asked for within this long are in use, and their indexes stay. */
@@ -246,6 +252,7 @@ function hlsService(): Promise<HlsService> {
       provider,
       ffmpegPath: FFMPEG_PATH,
       segmentDuration: SEGMENT_SECONDS,
+      keepWarmS: KEEP_WARM_SECONDS,
       segmentCacheBytes: SEGMENT_CACHE_BYTES,
       metadataCacheBytes: METADATA_CACHE_BYTES,
       logger: remuxLogger,

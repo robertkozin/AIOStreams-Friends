@@ -17,7 +17,7 @@ import { lastVersions, playableSources } from '../lib/playback/play';
 import { chosenPlayer } from '../lib/playback/player-choice';
 import {
   directUrl,
-  pageUrl,
+  hlsFor,
   requiredHeaders,
   useYouTubeStream,
 } from '../lib/playback/stream';
@@ -559,20 +559,22 @@ function Player({
     [local]
   );
   const isPlainBrowser = currentHost().name === 'browser';
-  // The page's own video plays the HLS remux where it can; a plain browser
-  // still needs movi for a file.
-  const page = pageUrl(client, item.Id!, source);
-  const playsHls = !hostPlayer && !local?.local && !youTube && page.hls;
+  const hls =
+    local?.local || youTube
+      ? null
+      : hlsFor(client, source, { hostPlayer: !!hostPlayer });
+  // A plain browser opens files through movi.
   const fallbackEngine =
-    isPlainBrowser && !playsHls ? moviEngine(video) : videoEngine(video);
+    isPlainBrowser && !hls ? moviEngine(video) : videoEngine(video);
   const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
-    url: local?.local
-      ? local.local.video
-      : (youTube ??
-        (playsHls ? page.url : directUrl(client, item.Id!, source))),
-    headers: local?.local || playsHls ? undefined : requiredHeaders(source),
+    url:
+      local?.local?.video ??
+      youTube ??
+      hls ??
+      directUrl(client, item.Id!, source),
+    headers: local?.local || hls ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,
