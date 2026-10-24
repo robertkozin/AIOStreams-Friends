@@ -26,7 +26,6 @@ import { currentHost } from '../lib/hosts';
 import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
-import { moviEngine } from '../lib/playback/movi';
 import { videoEngine } from '../lib/playback/video';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
@@ -558,23 +557,18 @@ function Player({
     },
     [local]
   );
-  const isPlainBrowser = currentHost().name === 'browser';
-  const hls =
-    local?.local || youTube
-      ? null
-      : hlsFor(client, source, { hostPlayer: !!hostPlayer });
-  // A plain browser opens files through movi.
-  const fallbackEngine =
-    isPlainBrowser && !hls ? moviEngine(video) : videoEngine(video);
-  const own = usePlayer(hostPlayer ?? fallbackEngine, {
+  const direct = directUrl(client, item.Id!, source);
+  const url =
+    local?.local?.video ??
+    youTube ??
+    hlsFor(client, source, { hostPlayer: !!hostPlayer }) ??
+    direct;
+  const own = usePlayer(hostPlayer ?? videoEngine(video), {
     client,
     item,
-    url:
-      local?.local?.video ??
-      youTube ??
-      hls ??
-      directUrl(client, item.Id!, source),
-    headers: local?.local || hls ? undefined : requiredHeaders(source),
+    url,
+    // A version's headers are for its own address, not HLS or a download.
+    headers: url === direct ? requiredHeaders(source) : undefined,
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,
