@@ -651,7 +651,9 @@ function Player({
     !player.state.pictureInPicture && (!player.state.started || !!launched);
   React.useLayoutEffect(() => onCovered(covered), [covered, onCovered]);
 
-  if (player.state.pictureInPicture)
+  // The app's own player in its own window; the page's video must stay, or
+  // the browser's picture in picture closes with it.
+  if (player.state.pictureInPicture && hostPlayer)
     return <div data-page="player" className="fixed inset-0" />;
   return (
     <div data-page="player" className="fixed inset-0">

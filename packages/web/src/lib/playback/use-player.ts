@@ -310,6 +310,13 @@ export function usePlayer(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, startMs]);
 
+  // Whether there's a device to cast to depends on what the video plays.
+  const [castable, setCastable] = React.useState(false);
+  React.useEffect(() => {
+    setCastable(false);
+    return engine.cast?.watch(setCastable);
+  }, [engine, url]);
+
   const [thumbnailsOn] = useSetting(settings.controls.thumbnails);
   React.useEffect(() => {
     if (!engine.thumbnails || !thumbnailsOn) return;
@@ -548,6 +555,9 @@ export function usePlayer(
     subtitleFiles: engine.subtitleFiles,
     toggleFullscreen:
       engine.toggleFullscreen && (() => engine.toggleFullscreen!()),
+    togglePictureInPicture:
+      engine.togglePictureInPicture && (() => engine.togglePictureInPicture!()),
+    cast: castable && engine.cast ? { prompt: engine.cast.prompt } : undefined,
     chapters,
     stats: stats && {
       pages: stats.pages,

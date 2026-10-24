@@ -40,6 +40,27 @@ interface FileTrack {
 
 /** Ids of the HLS playlist's own subtitle renditions, by their place in it. */
 const HLS_SUBTITLE = 'hls-subtitle:';
+/** The same, as the browser's own HLS lists them. */
+const NATIVE_SUBTITLE = 'native-subtitle:';
+
+/** Safari's, which predates the standard picture in picture. */
+type WebKitVideo = HTMLVideoElement & {
+  webkitSupportsPresentationMode?(mode: string): boolean;
+  webkitSetPresentationMode?(mode: string): void;
+  webkitPresentationMode?: string;
+};
+
+const pipSupported = () =>
+  document.pictureInPictureEnabled ||
+  'webkitSupportsPresentationMode' in HTMLVideoElement.prototype;
+
+/**
+ * Safari's own HLS, which AirPlay takes and hls.js's Media Source can't
+ * offer, along with its own picture in picture and track menus.
+ */
+const prefersNativeHls = (el: HTMLVideoElement) =>
+  'WebKitPlaybackTargetAvailabilityEvent' in window &&
+  !!el.canPlayType('application/vnd.apple.mpegurl');
 
 const isHls = (url: string) =>
   new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
@@ -96,6 +117,18 @@ export function videoEngine(
         }
       }
     };
+    // The playlist's subtitles as the browser's own HLS adds them.
+    const playlistTextTracks = () => {
+      const el = video.current;
+      if (!el || hls || !file || !isHls(file.url)) return [];
+      const ours = new Set<TextTrack>([
+        ...elements.map((e) => e.track),
+        ...files.map((f) => f.track),
+      ]);
+      return Array.from(el.textTracks).filter(
+        (t) => !ours.has(t) && (t.kind === 'subtitles' || t.kind === 'captions')
+      );
+    };
     const listTracks = () => {
       const audio = video.current && audioTracksOf(video.current);
       const audioTracks: AudioTrack[] = hls
@@ -126,6 +159,14 @@ export function videoEngine(
           default: t.default,
           file: true,
         })),
+        ...playlistTextTracks().map((t, i) => ({
+          id: `${NATIVE_SUBTITLE}${i}`,
+          type: 'subtitle' as const,
+          label: ownTrackLabel(t.label, t.language, i + 1),
+          lang: t.language,
+          title: t.label,
+          file: true,
+        })),
         ...files.map(({ id, label }) => ({
           id,
           type: 'subtitle' as const,
@@ -143,6 +184,9 @@ export function videoEngine(
       });
       for (const f of files)
         f.track.mode = f.id === id ? 'showing' : 'disabled';
+      playlistTextTracks().forEach((t, i) => {
+        t.mode = id === `${NATIVE_SUBTITLE}${i}` ? 'showing' : 'disabled';
+      });
       if (hls) {
         const own = id?.startsWith(HLS_SUBTITLE)
           ? Number(id.slice(HLS_SUBTITLE.length))
@@ -159,7 +203,8 @@ export function videoEngine(
       return () => {};
     };
     const attachHls = (el: HTMLVideoElement, next: EngineFile) => {
-      if (!Hls.isSupported()) return attachFile(el, next);
+      if (!Hls.isSupported() || prefersNativeHls(el))
+        return attachFile(el, next);
       const player = new Hls({
         startPosition: next.startMs / 1000,
       });
@@ -243,6 +288,14 @@ export function videoEngine(
             }),
           progress: () => emit({ type: 'position', buffered: buffered() }),
           volumechange: () => set({ volume: el.volume, muted: el.muted }),
+          enterpictureinpicture: () => set({ pictureInPicture: true }),
+          leavepictureinpicture: () => set({ pictureInPicture: false }),
+          webkitpresentationmodechanged: () =>
+            set({
+              pictureInPicture:
+                (el as WebKitVideo).webkitPresentationMode ===
+                'picture-in-picture',
+            }),
           ratechange: () => set({ rate: el.playbackRate }),
           ended: () => emit({ type: 'ended' }),
           error: () =>
@@ -266,6 +319,13 @@ export function videoEngine(
           shiftCues();
         };
         for (const e of elements) e.addEventListener('load', onTrackLoad);
+        // The browser's own HLS adds the playlist's subtitles as it reads it,
+        // and their cues a segment at a time.
+        const onTextTrack = (event: TrackEvent) => {
+          event.track?.addEventListener('cuechange', onTrackLoad);
+          listTracks();
+        };
+        el.textTracks.addEventListener('addtrack', onTextTrack);
         const onFullscreen = () => set({ fullscreen: isFullscreen() });
         document.addEventListener('fullscreenchange', onFullscreen);
         detach = () => {
@@ -274,6 +334,9 @@ export function videoEngine(
           for (const event of audioEvents)
             audio?.removeEventListener(event, listTracks);
           for (const e of elements) e.removeEventListener('load', onTrackLoad);
+          el.textTracks.removeEventListener('addtrack', onTextTrack);
+          for (const track of Array.from(el.textTracks))
+            track.removeEventListener('cuechange', onTrackLoad);
           document.removeEventListener('fullscreenchange', onFullscreen);
         };
         onFullscreen();
@@ -334,6 +397,55 @@ export function videoEngine(
         placeCues();
       },
       toggleFullscreen: toggleDocumentFullscreen,
+      togglePictureInPicture: pipSupported()
+        ? () => {
+            const el = video.current as WebKitVideo | null;
+            if (!el) return;
+            if (document.pictureInPictureEnabled) {
+              if (document.pictureInPictureElement === el)
+                void document.exitPictureInPicture().catch(() => {});
+              else void el.requestPictureInPicture().catch(() => {});
+              return;
+            }
+            el.webkitSetPresentationMode?.(
+              el.webkitPresentationMode === 'picture-in-picture'
+                ? 'inline'
+                : 'picture-in-picture'
+            );
+          }
+        : undefined,
+      // AirPlay, or a cast device the browser reaches with the video's own
+      // address; never one fed through Media Source.
+      cast:
+        'remote' in HTMLMediaElement.prototype
+          ? {
+              watch(available) {
+                const remote = video.current?.remote;
+                if (!remote) {
+                  available(false);
+                  return () => {};
+                }
+                let id: number | undefined;
+                let stopped = false;
+                remote
+                  .watchAvailability(available)
+                  .then((n) => {
+                    id = n;
+                    if (stopped)
+                      void remote.cancelWatchAvailability(n).catch(() => {});
+                  })
+                  .catch(() => available(false));
+                return () => {
+                  stopped = true;
+                  if (id !== undefined)
+                    void remote.cancelWatchAvailability(id).catch(() => {});
+                };
+              },
+              prompt() {
+                void video.current?.remote.prompt().catch(() => {});
+              },
+            }
+          : undefined,
       ownText: (id) => files.find((f) => f.id === id)?.text ?? null,
       subtitleFiles: {
         types: SUBTITLE_TYPES,
