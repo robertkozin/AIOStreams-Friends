@@ -19,7 +19,12 @@ import {
   type MemoPointer,
   type PlaybackMemo,
   type PlaySupport,
+  DebridError,
+  isUsenetHlsCandidate,
+  usenetTokenFor,
 } from '@aiostreams/core';
+import { hlsMasterUrl } from '../api/hls.js';
+import { hlsAudioPlace } from './hls.js';
 import {
   bodyField,
   bodyOf,
@@ -306,19 +311,59 @@ const STREAM_PATHS = [
 router.get(STREAM_PATHS, jfOptional(streamHandler));
 router.head(STREAM_PATHS, jfOptional(streamHandler));
 
+/**
+ * The version remuxed to HLS, for a client that can't direct play it: opens
+ * (or reuses) a session and sends the client to its playlist.
+ */
+async function hlsMaster(req: Request, res: Response) {
+  const loc = await locate(req, param(req, 'itemId'), { bySession: true });
+  const memo = loc ? await ensureMemo(loc) : null;
+  const source = memo ? pickSource(memo, loc?.requestedMsid) : undefined;
+  if (!source || source.notice) {
+    res.status(404).json({ Message: 'No playable stream' });
+    return;
+  }
+  const clientIp = req.requestIp || req.ip || req.socket.remoteAddress;
+  try {
+    const token = isUsenetHlsCandidate(source.url)
+      ? await usenetTokenFor(source.url, clientIp)
+      : undefined;
+    if (!token) {
+      res.status(415).json({ Message: 'This version has no HLS stream' });
+      return;
+    }
+    const audioIndex = Number(qs(req, 'AudioStreamIndex'));
+    const audio =
+      Number.isInteger(audioIndex) && audioIndex >= 0
+        ? hlsAudioPlace(source, audioIndex)
+        : undefined;
+    res.setHeader('Cache-Control', 'no-store');
+    res.redirect(302, hlsMasterUrl(token, audio));
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, msid: source.msid },
+      'could not resolve a version for hls'
+    );
+    const status = err instanceof DebridError ? err.statusCode || 502 : 502;
+    res.status(status).json({ Message: (err as Error).message });
+  }
+}
+
+const notTranscoding = (_req: Request, res: Response) => {
+  res.status(501).json({
+    Message: 'Transcoding is not available; this server only direct plays.',
+  });
+};
+
+router.get('/Videos/:itemId/master.m3u8', jfOptional(hlsMaster));
 router.get(
   [
-    '/Videos/:itemId/master.m3u8',
     '/Videos/:itemId/main.m3u8',
     '/Videos/:itemId/live.m3u8',
     '/Videos/:itemId/hls1/{*rest}',
     '/Videos/:itemId/hls/{*rest}',
   ],
-  (_req, res) => {
-    res.status(501).json({
-      Message: 'Transcoding is not available; this server only direct plays.',
-    });
-  }
+  notTranscoding
 );
 
 export { locate, ensureMemo, pickSource };

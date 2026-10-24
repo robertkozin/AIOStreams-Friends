@@ -73,8 +73,11 @@ import { stremioStreamRateLimiter } from '../../middlewares/ratelimit.js';
 import { StaticFiles } from '../../utils/static-errors.js';
 import {
   ANDROID_PLAYER_CLIENT,
+  bodyField,
+  qs,
   type JellyfinRequestContext,
 } from './context.js';
+import { offerHls } from './hls.js';
 import {
   getMeta,
   maxVersionsFor,
@@ -782,8 +785,11 @@ export function mediaSourcesFrom(
         ...ordered.slice(idx + 1),
       ];
   }
-  return ordered.map((record, i) =>
-    buildMediaSource(record, {
+  const audioIndex = Number(
+    qs(req, 'AudioStreamIndex') ?? bodyField(req, 'AudioStreamIndex')
+  );
+  return ordered.map((record, i) => {
+    const source = buildMediaSource(record, {
       id: i === 0 ? opts.firstId : record.msid,
       subtitleFormat: format,
       subtitleUrl: subtitleUrlFor(memo.itemId, record.msid),
@@ -796,8 +802,19 @@ export function mediaSourcesFrom(
       noticePath: nothingToPlayPath(req, ctx),
       tracks: opts.tracks,
       originalLanguage: memo.titleMetadata?.originalLanguage,
-    })
-  );
+    });
+    offerHls(source, record, {
+      itemId: memo.itemId,
+      playSessionId: memo.psid,
+      token,
+      profile: opts.profile,
+      audioStreamIndex:
+        Number.isInteger(audioIndex) && audioIndex >= 0
+          ? audioIndex
+          : undefined,
+    });
+    return source;
+  });
 }
 
 /** Lets the "Load versions" id, a hash, lead back to its item. */

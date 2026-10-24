@@ -39,6 +39,9 @@ importers:
       '@aiostreams/crypto':
         specifier: workspace:*
         version: link:../crypto
+      '@rimjoeh/mkv-remuxer':
+        specifier: 0.1.4
+        version: 0.1.4
       '@torbox/torbox-api':
         specifier: github:viren070/torbox-sdk-js#dist
         version: https://codeload.github.com/viren070/torbox-sdk-js/tar.gz/82fb4eb14ccd3a0372fb445f796fa49527960cdd
@@ -676,6 +679,9 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
         version: 7.1.1(eslint@10.13.0(jiti@2.7.0))
+      hls.js:
+        specifier: 1.7.3
+        version: 1.7.3
       motion:
         specifier: ^12.43.0
         version: 12.43.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2350,6 +2356,10 @@ packages:
         optional: true
       react-redux:
         optional: true
+
+  '@rimjoeh/mkv-remuxer@0.1.4':
+    resolution: {integrity: sha512-lbwxW2U9wzhV6uZUpRTzBHQQoFWGbw+L+n1O4Ja5Rw40me4bypq/SyyYAQ6jnhpKVEq4Q85VaqHWpFZpit8lag==}
+    engines: {node: '>=22'}
 
   '@rolldown/binding-android-arm-eabi@1.2.13':
     resolution: {integrity: sha512-Vu/NICrgdRvUOeaJZIyB2FP63s6fO/4ud5l8dXmxDx9yDyn+mN0y+gsvsVviSli+T361Aqo0h46EuMoobrwawA==}
@@ -7296,7 +7306,6 @@ packages:
 
   shaka-player@4.16.53:
     resolution: {integrity: sha512-XrOjsMMv/lIn1rlKl7shlw+QtO+DseiHvpKryCeR36EaIVCfQ50YZnbOr3ZqM7mBDkYx1vo1MaV6xPG5P4vbxg==}
-    engines: {node: '>=18'}
 
   sharp@0.35.5:
     resolution: {integrity: sha512-Ywn4OnzGukp7CDMrp08RQ50YKmuwG47brZgIVPTvBaaAfQlRlygrRqSrxdCiL9M+LlzLBiJ68IR1QqvzHyjC7g==}
@@ -9753,6 +9762,8 @@ snapshots:
     optionalDependencies:
       react: 19.3.0
       react-redux: 9.3.0(@types/react@19.3.0)(react@19.3.0)(redux@5.0.1)
+
+  '@rimjoeh/mkv-remuxer@0.1.4': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.13':
     optional: true

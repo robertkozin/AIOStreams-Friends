@@ -17,6 +17,7 @@ import { lastVersions, playableSources } from '../lib/playback/play';
 import { chosenPlayer } from '../lib/playback/player-choice';
 import {
   directUrl,
+  hlsFor,
   requiredHeaders,
   useYouTubeStream,
 } from '../lib/playback/stream';
@@ -25,7 +26,6 @@ import { currentHost } from '../lib/hosts';
 import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
-import { moviEngine } from '../lib/playback/movi';
 import { videoEngine } from '../lib/playback/video';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
@@ -557,17 +557,18 @@ function Player({
     },
     [local]
   );
-  const isPlainBrowser = currentHost().name === 'browser';
-  const fallbackEngine = isPlainBrowser
-    ? moviEngine(video)
-    : videoEngine(video);
-  const own = usePlayer(hostPlayer ?? fallbackEngine, {
+  const direct = directUrl(client, item.Id!, source);
+  const url =
+    local?.local?.video ??
+    youTube ??
+    hlsFor(client, source, { hostPlayer: !!hostPlayer }) ??
+    direct;
+  const own = usePlayer(hostPlayer ?? videoEngine(video), {
     client,
     item,
-    url: local?.local
-      ? local.local.video
-      : (youTube ?? directUrl(client, item.Id!, source)),
-    headers: local?.local ? undefined : requiredHeaders(source),
+    url,
+    // A version's headers are for its own address, not HLS or a download.
+    headers: url === direct ? requiredHeaders(source) : undefined,
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,
@@ -650,7 +651,9 @@ function Player({
     !player.state.pictureInPicture && (!player.state.started || !!launched);
   React.useLayoutEffect(() => onCovered(covered), [covered, onCovered]);
 
-  if (player.state.pictureInPicture)
+  // The app's own player in its own window; the page's video must stay, or
+  // the browser's picture in picture closes with it.
+  if (player.state.pictureInPicture && hostPlayer)
     return <div data-page="player" className="fixed inset-0" />;
   return (
     <div data-page="player" className="fixed inset-0">
