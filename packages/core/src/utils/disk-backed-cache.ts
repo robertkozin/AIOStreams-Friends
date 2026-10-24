@@ -59,11 +59,31 @@ export interface DiskBackedCacheStats {
 }
 
 /**
- * Live registry of all {@link DiskBackedCache} instances so the dashboard can
- * surface them alongside the Redis/SQL/memory caches. Instances register on
+ * What the dashboard reads of a disk cache and how it clears one. Every
+ * {@link DiskBackedCache} is one; a cache that keeps its own files (the HLS
+ * remux's) joins through {@link registerDiskCache}.
+ */
+export interface RegisteredDiskCache {
+  readonly name: string;
+  readonly maxMemBytes: number;
+  readonly maxDiskBytes: number;
+  stats(): DiskBackedCacheStats;
+  clear(): Promise<void>;
+  flush(): Promise<void>;
+}
+
+/**
+ * Live registry of all disk caches so the dashboard can surface them alongside
+ * the Redis/SQL/memory caches. {@link DiskBackedCache} instances register on
  * construction and unregister on {@link DiskBackedCache.close}.
  */
-const diskCacheRegistry = new Set<DiskBackedCache<unknown>>();
+const diskCacheRegistry = new Set<RegisteredDiskCache>();
+
+/** Lists a cache on the dashboard cache page until the returned call. */
+export function registerDiskCache(cache: RegisteredDiskCache): () => void {
+  diskCacheRegistry.add(cache);
+  return () => diskCacheRegistry.delete(cache);
+}
 
 /** Snapshot every live disk-backed cache for the dashboard cache page. */
 export function describeDiskCaches(): {
@@ -139,7 +159,7 @@ export class DiskBackedCache<V> {
     this.dir = path.join(opts.dir, opts.name);
     this.indexPath = path.join(opts.dir, `${opts.name}.index.json`);
     this.ready = this.load();
-    diskCacheRegistry.add(this as DiskBackedCache<unknown>);
+    diskCacheRegistry.add(this);
   }
 
   /** Namespace of this cache (drives the on-disk subdirectory + index file). */

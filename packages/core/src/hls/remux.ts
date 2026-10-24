@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, pipeline, type Readable } from 'node:stream';
 import {
@@ -29,6 +29,10 @@ import {
   usenetTargetKey,
   type StreamHandle,
 } from '../stream-sessions/index.js';
+import {
+  registerDiskCache,
+  type RegisteredDiskCache,
+} from '../utils/disk-backed-cache.js';
 
 const logger = createLogger('hls');
 
@@ -239,10 +243,44 @@ const provider: SourceProvider = {
 
 let service: Promise<HlsService> | undefined;
 
+const CACHE_NAME = 'hls-remux';
+const cacheDir = () => join(getCacheFolder(), 'remux');
+
+/**
+ * The remuxer's cache on the dashboard cache page, beside the grab and
+ * segment caches. Sizes are the remuxer's own: segments as written, metadata
+ * as of its last sweep; items are the titles it holds.
+ */
+function dashboardEntry(hls: HlsService): RegisteredDiskCache {
+  return {
+    name: CACHE_NAME,
+    maxMemBytes: 0,
+    maxDiskBytes: SEGMENT_CACHE_BYTES + METADATA_CACHE_BYTES,
+    stats() {
+      const { segmentCacheBytes, cache } = hls.status();
+      return {
+        memBytes: 0,
+        memCount: 0,
+        diskBytes: segmentCacheBytes + cache.metadata,
+        diskCount: cache.titles,
+        hits: 0,
+        misses: 0,
+        diskHits: 0,
+        hitRate: 0,
+      };
+    },
+    clear: clearHls,
+    // The remuxer writes each file whole, so there is nothing to drain.
+    flush: async () => {},
+  };
+}
+
+let unregister: (() => void) | undefined;
+
 function hlsService(): Promise<HlsService> {
   if (!service) {
     const started = createHlsService({
-      cacheDir: join(getCacheFolder(), 'remux'),
+      cacheDir: cacheDir(),
       provider,
       ffmpegPath: FFMPEG_PATH,
       segmentDuration: SEGMENT_SECONDS,
@@ -250,13 +288,38 @@ function hlsService(): Promise<HlsService> {
       metadataCacheBytes: METADATA_CACHE_BYTES,
       logger: remuxLogger,
     });
-    // A failed start (ffmpeg missing) is tried again on the next request.
-    started.catch(() => {
-      if (service === started) service = undefined;
-    });
+    started.then(
+      (hls) => {
+        unregister?.();
+        unregister = registerDiskCache(dashboardEntry(hls));
+      },
+      // A failed start (ffmpeg missing) is tried again on the next request.
+      () => {
+        if (service === started) service = undefined;
+      }
+    );
     service = started;
   }
   return service;
+}
+
+async function stopService(): Promise<void> {
+  const started = service;
+  service = undefined;
+  unregister?.();
+  unregister = undefined;
+  (await started?.catch(() => undefined))?.close();
+}
+
+/**
+ * Empties the remux cache from the dashboard: stops the remuxer, which kills
+ * its ffmpeg runs, and deletes its folder. The next request starts afresh, so
+ * a player only waits for its segments to render again.
+ */
+async function clearHls(): Promise<void> {
+  await stopService();
+  await rm(cacheDir(), { recursive: true, force: true });
+  logger.info('cleared the hls remux cache');
 }
 
 export interface HlsResponse {
@@ -308,7 +371,5 @@ export async function serveHls(
 
 export async function closeHls(): Promise<void> {
   for (const viewer of [...viewers.values()]) closeViewer(viewer);
-  const started = service;
-  service = undefined;
-  (await started?.catch(() => undefined))?.close();
+  await stopService();
 }
