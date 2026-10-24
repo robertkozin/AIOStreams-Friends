@@ -55,21 +55,28 @@ const pipSupported = () =>
   'webkitSupportsPresentationMode' in HTMLVideoElement.prototype;
 
 /**
- * Safari's own HLS, which AirPlay takes and hls.js's Media Source can't
- * offer, along with its own picture in picture and track menus.
+ * The browser plays HLS itself: Safari, recent Chrome, Firefox on Android.
+ * Its own player is lighter than hls.js, and the one casting and AirPlay take.
  */
-const prefersNativeHls = (el: HTMLVideoElement) =>
-  'WebKitPlaybackTargetAvailabilityEvent' in window &&
+const playsHlsNatively = (el: HTMLVideoElement) =>
   !!el.canPlayType('application/vnd.apple.mpegurl');
+
+/**
+ * Native HLS that switches the playlist's audio and subtitles itself, which
+ * goes with the audio track API: Safari's. Its tracks arrive a moment after
+ * the stream opens, so this is known up front rather than read off them.
+ */
+const nativeSwitchesTracks = () => 'audioTracks' in HTMLMediaElement.prototype;
 
 const isHls = (url: string) =>
   new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
 
 /**
  * The page's own `<video>`. The server's subtitles are `<track>`s, and files
- * the user adds are text tracks after them. An HLS address plays through
- * hls.js where the browser has Media Source, and the browser's own HLS where
- * it doesn't; its audio tracks are then the playlist's.
+ * the user adds are text tracks after them. An HLS address plays in the
+ * browser's own HLS where it has one, and in hls.js where it doesn't, where
+ * it fails, or once a track is picked that it can't switch to (Chrome and
+ * Firefox switch neither the playlist's audio nor, maybe, its subtitles).
  */
 export function videoEngine(
   video: React.RefObject<HTMLVideoElement | null>
@@ -77,6 +84,11 @@ export function videoEngine(
   return (emit) => {
     let file: EngineFile | null = null;
     let hls: Hls | null = null;
+    let mode: 'file' | 'native' | 'hlsjs' = 'file';
+    // Picked in native HLS, for hls.js to apply once it lists its tracks.
+    let pendingAudio: number | undefined;
+    let pendingSubtitle: number | undefined;
+    let subtitleId: string | null = null;
     let elements: HTMLTrackElement[] = [];
     let files: FileTrack[] = [];
     let delayMs = 0;
@@ -129,6 +141,25 @@ export function videoEngine(
         (t) => !ours.has(t) && (t.kind === 'subtitles' || t.kind === 'captions')
       );
     };
+    // The version's tracks in the file's order, which is the playlist's: what
+    // native HLS that can't list them plays, and hls.js would.
+    const sourceAudio = () =>
+      (file?.source.MediaStreams ?? []).filter((s) => s.Type === 'Audio');
+    const sourceSubtitles = () =>
+      (file?.source.MediaStreams ?? []).filter(
+        (s) =>
+          s.Type === 'Subtitle' &&
+          s.DeliveryMethod === 'Embed' &&
+          s.IsTextSubtitleStream
+      );
+    // The playlist's default, which is the version's.
+    const nativeAudio = () =>
+      Math.max(
+        0,
+        sourceAudio().findIndex(
+          (s) => s.Index === file?.source.DefaultAudioStreamIndex
+        )
+      );
     const listTracks = () => {
       const audio = video.current && audioTracksOf(video.current);
       const audioTracks: AudioTrack[] = hls
@@ -137,9 +168,16 @@ export function videoEngine(
             label: t.name,
             language: t.lang ?? '',
           }))
-        : audio
+        : audio?.length
           ? listed(audio)
-          : [];
+          : mode === 'native' && !nativeSwitchesTracks()
+            ? sourceAudio().map((s, i) => ({
+                enabled: i === nativeAudio(),
+                label: s.DisplayTitle ?? '',
+                language: s.Language ?? '',
+              }))
+            : [];
+      const playlistSubtitles = playlistTextTracks();
       const tracks: EngineTrack[] = [
         ...audioTracks.map((t, i) => ({
           id: String(i),
@@ -159,7 +197,7 @@ export function videoEngine(
           default: t.default,
           file: true,
         })),
-        ...playlistTextTracks().map((t, i) => ({
+        ...playlistSubtitles.map((t, i) => ({
           id: `${NATIVE_SUBTITLE}${i}`,
           type: 'subtitle' as const,
           label: ownTrackLabel(t.label, t.language, i + 1),
@@ -167,6 +205,26 @@ export function videoEngine(
           title: t.label,
           file: true,
         })),
+        // Native HLS that lists none of the playlist's: picking one goes to
+        // hls.js, under the id it gives it there.
+        ...(mode === 'native' &&
+        !nativeSwitchesTracks() &&
+        !playlistSubtitles.length
+          ? sourceSubtitles().map((s, i) => ({
+              id: `${HLS_SUBTITLE}${i}`,
+              type: 'subtitle' as const,
+              label: ownTrackLabel(
+                s.DisplayTitle ?? undefined,
+                s.Language ?? undefined,
+                i + 1
+              ),
+              lang: s.Language ?? undefined,
+              title: s.Title ?? undefined,
+              forced: s.IsForced ?? undefined,
+              default: s.IsDefault ?? undefined,
+              file: true,
+            }))
+          : []),
         ...files.map(({ id, label }) => ({
           id,
           type: 'subtitle' as const,
@@ -179,6 +237,12 @@ export function videoEngine(
       set({ audio: on < 0 ? null : String(on) });
     };
     const setSubtitle = (id: string | null) => {
+      subtitleId = id;
+      if (!hls && !nativeSwitchesTracks() && id?.startsWith(HLS_SUBTITLE)) {
+        pendingSubtitle = Number(id.slice(HLS_SUBTITLE.length));
+        if (toHlsJs()) return set({ subtitle: id });
+        pendingSubtitle = undefined;
+      }
       elements.forEach((e, i) => {
         e.track.mode = file?.subtitles[i]?.id === id ? 'showing' : 'disabled';
       });
@@ -199,12 +263,21 @@ export function videoEngine(
     };
     const set = (state: EngineState) => emit({ type: 'state', state });
     const attachFile = (el: HTMLVideoElement, next: EngineFile) => {
+      mode = 'file';
       el.src = next.url;
       return () => {};
     };
-    const attachHls = (el: HTMLVideoElement, next: EngineFile) => {
-      if (!Hls.isSupported() || prefersNativeHls(el))
-        return attachFile(el, next);
+    const attachHls = (
+      el: HTMLVideoElement,
+      next: EngineFile,
+      forceHlsJs: boolean
+    ) => {
+      if ((!forceHlsJs && playsHlsNatively(el)) || !Hls.isSupported()) {
+        mode = 'native';
+        el.src = next.url;
+        return () => {};
+      }
+      mode = 'hlsjs';
       const player = new Hls({
         startPosition: next.startMs / 1000,
       });
@@ -212,9 +285,20 @@ export function videoEngine(
       player.subtitleDisplay = false;
       hls = player;
       let recovered = false;
-      player.on(Events.AUDIO_TRACKS_UPDATED, listTracks);
+      player.on(Events.AUDIO_TRACKS_UPDATED, () => {
+        if (pendingAudio !== undefined) player.audioTrack = pendingAudio;
+        pendingAudio = undefined;
+        listTracks();
+      });
       player.on(Events.AUDIO_TRACK_SWITCHED, listTracks);
-      player.on(Events.SUBTITLE_TRACKS_UPDATED, listTracks);
+      player.on(Events.SUBTITLE_TRACKS_UPDATED, () => {
+        if (pendingSubtitle !== undefined) {
+          player.subtitleDisplay = true;
+          player.subtitleTrack = pendingSubtitle;
+        }
+        pendingSubtitle = undefined;
+        listTracks();
+      });
       player.on(Events.SUBTITLE_FRAG_PROCESSED, () => {
         placeCues();
         shiftCues();
@@ -241,109 +325,139 @@ export function videoEngine(
       elements = [];
     };
 
+    const open = (next: EngineFile, forceHlsJs: boolean) => {
+      const el = video.current;
+      if (!el) return;
+      detach();
+      removeElements();
+      file = next;
+      delayMs = next.subtitleDelayMs;
+      elements = next.subtitles.map((s) => {
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.src = s.url;
+        track.label = s.label;
+        if (s.lang) track.srclang = s.lang;
+        el.append(track);
+        return track;
+      });
+      if (next.volume) {
+        el.volume = Math.min(1, next.volume.volume);
+        el.muted = next.volume.muted;
+      }
+      const buffered = () =>
+        Array.from({ length: el.buffered.length }, (_, i) => ({
+          startMs: el.buffered.start(i) * 1000,
+          endMs: el.buffered.end(i) * 1000,
+        }));
+      const handlers: Record<string, () => void> = {
+        loadedmetadata: () => {
+          if (next.startMs) el.currentTime = next.startMs / 1000;
+          set({ durationMs: el.duration * 1000 || 0 });
+          listTracks();
+          emit({ type: 'loaded' });
+        },
+        durationchange: () => set({ durationMs: el.duration * 1000 || 0 }),
+        playing: () => set({ started: true, paused: false, waiting: false }),
+        pause: () => set({ paused: true }),
+        play: () => set({ paused: false }),
+        waiting: () => set({ waiting: true }),
+        canplay: () => set({ waiting: false }),
+        timeupdate: () =>
+          emit({
+            type: 'position',
+            positionMs: el.currentTime * 1000,
+            buffered: buffered(),
+          }),
+        progress: () => emit({ type: 'position', buffered: buffered() }),
+        volumechange: () => set({ volume: el.volume, muted: el.muted }),
+        enterpictureinpicture: () => set({ pictureInPicture: true }),
+        leavepictureinpicture: () => set({ pictureInPicture: false }),
+        webkitpresentationmodechanged: () =>
+          set({
+            pictureInPicture:
+              (el as WebKitVideo).webkitPresentationMode ===
+              'picture-in-picture',
+          }),
+        ratechange: () => set({ rate: el.playbackRate }),
+        ended: () => emit({ type: 'ended' }),
+        error: () => {
+          if (mode === 'native' && toHlsJs()) return;
+          emit({
+            type: 'failed',
+            error: t({
+              comment: 'Follows "Playback failed:"',
+              message:
+                'this browser cannot play this version. Nothing is converted on the server, so try another version, an external player or the desktop app.',
+            }),
+          });
+        },
+      };
+      for (const [event, handler] of Object.entries(handlers))
+        el.addEventListener(event, handler);
+      const audio = audioTracksOf(el);
+      const audioEvents = ['addtrack', 'removetrack', 'change'];
+      for (const event of audioEvents)
+        audio?.addEventListener(event, listTracks);
+      const onTrackLoad = () => {
+        placeCues();
+        shiftCues();
+      };
+      for (const e of elements) e.addEventListener('load', onTrackLoad);
+      // The browser's own HLS adds the playlist's subtitles as it reads it,
+      // and their cues a segment at a time.
+      const onTextTrack = (event: TrackEvent) => {
+        event.track?.addEventListener('cuechange', onTrackLoad);
+        listTracks();
+      };
+      el.textTracks.addEventListener('addtrack', onTextTrack);
+      const onFullscreen = () => set({ fullscreen: isFullscreen() });
+      document.addEventListener('fullscreenchange', onFullscreen);
+      detach = () => {
+        for (const [event, handler] of Object.entries(handlers))
+          el.removeEventListener(event, handler);
+        for (const event of audioEvents)
+          audio?.removeEventListener(event, listTracks);
+        for (const e of elements) e.removeEventListener('load', onTrackLoad);
+        el.textTracks.removeEventListener('addtrack', onTextTrack);
+        for (const track of Array.from(el.textTracks))
+          track.removeEventListener('cuechange', onTrackLoad);
+        document.removeEventListener('fullscreenchange', onFullscreen);
+      };
+      onFullscreen();
+      el.autoplay = !next.paused;
+      if (next.paused) set({ paused: true });
+      unattach();
+      unattach = isHls(next.url)
+        ? attachHls(el, next, forceHlsJs)
+        : attachFile(el, next);
+    };
+    /**
+     * Reopens the playlist in hls.js where native HLS is, for what native
+     * HLS can't do: a track it can't switch to, or a stream it failed on.
+     */
+    const toHlsJs = (): boolean => {
+      const el = video.current;
+      if (!el || !file || mode !== 'native' || !Hls.isSupported()) return false;
+      const keep = subtitleId;
+      open(
+        {
+          ...file,
+          startMs: el.currentTime > 0 ? el.currentTime * 1000 : file.startMs,
+          paused: el.paused,
+        },
+        true
+      );
+      if (keep && !keep.startsWith(HLS_SUBTITLE)) setSubtitle(keep);
+      return true;
+    };
+
     return {
       load(next) {
-        const el = video.current;
-        if (!el) return;
-        detach();
-        removeElements();
-        file = next;
-        delayMs = next.subtitleDelayMs;
-        elements = next.subtitles.map((s) => {
-          const track = document.createElement('track');
-          track.kind = 'subtitles';
-          track.src = s.url;
-          track.label = s.label;
-          if (s.lang) track.srclang = s.lang;
-          el.append(track);
-          return track;
-        });
-        if (next.volume) {
-          el.volume = Math.min(1, next.volume.volume);
-          el.muted = next.volume.muted;
-        }
-        const buffered = () =>
-          Array.from({ length: el.buffered.length }, (_, i) => ({
-            startMs: el.buffered.start(i) * 1000,
-            endMs: el.buffered.end(i) * 1000,
-          }));
-        const handlers: Record<string, () => void> = {
-          loadedmetadata: () => {
-            if (next.startMs) el.currentTime = next.startMs / 1000;
-            set({ durationMs: el.duration * 1000 || 0 });
-            listTracks();
-            emit({ type: 'loaded' });
-          },
-          durationchange: () => set({ durationMs: el.duration * 1000 || 0 }),
-          playing: () => set({ started: true, paused: false, waiting: false }),
-          pause: () => set({ paused: true }),
-          play: () => set({ paused: false }),
-          waiting: () => set({ waiting: true }),
-          canplay: () => set({ waiting: false }),
-          timeupdate: () =>
-            emit({
-              type: 'position',
-              positionMs: el.currentTime * 1000,
-              buffered: buffered(),
-            }),
-          progress: () => emit({ type: 'position', buffered: buffered() }),
-          volumechange: () => set({ volume: el.volume, muted: el.muted }),
-          enterpictureinpicture: () => set({ pictureInPicture: true }),
-          leavepictureinpicture: () => set({ pictureInPicture: false }),
-          webkitpresentationmodechanged: () =>
-            set({
-              pictureInPicture:
-                (el as WebKitVideo).webkitPresentationMode ===
-                'picture-in-picture',
-            }),
-          ratechange: () => set({ rate: el.playbackRate }),
-          ended: () => emit({ type: 'ended' }),
-          error: () =>
-            emit({
-              type: 'failed',
-              error: t({
-                comment: 'Follows "Playback failed:"',
-                message:
-                  'this browser cannot play this version. Nothing is converted on the server, so try another version, an external player or the desktop app.',
-              }),
-            }),
-        };
-        for (const [event, handler] of Object.entries(handlers))
-          el.addEventListener(event, handler);
-        const audio = audioTracksOf(el);
-        const audioEvents = ['addtrack', 'removetrack', 'change'];
-        for (const event of audioEvents)
-          audio?.addEventListener(event, listTracks);
-        const onTrackLoad = () => {
-          placeCues();
-          shiftCues();
-        };
-        for (const e of elements) e.addEventListener('load', onTrackLoad);
-        // The browser's own HLS adds the playlist's subtitles as it reads it,
-        // and their cues a segment at a time.
-        const onTextTrack = (event: TrackEvent) => {
-          event.track?.addEventListener('cuechange', onTrackLoad);
-          listTracks();
-        };
-        el.textTracks.addEventListener('addtrack', onTextTrack);
-        const onFullscreen = () => set({ fullscreen: isFullscreen() });
-        document.addEventListener('fullscreenchange', onFullscreen);
-        detach = () => {
-          for (const [event, handler] of Object.entries(handlers))
-            el.removeEventListener(event, handler);
-          for (const event of audioEvents)
-            audio?.removeEventListener(event, listTracks);
-          for (const e of elements) e.removeEventListener('load', onTrackLoad);
-          el.textTracks.removeEventListener('addtrack', onTextTrack);
-          for (const track of Array.from(el.textTracks))
-            track.removeEventListener('cuechange', onTrackLoad);
-          document.removeEventListener('fullscreenchange', onFullscreen);
-        };
-        onFullscreen();
-        el.autoplay = !next.paused;
-        if (next.paused) set({ paused: true });
-        unattach();
-        unattach = isHls(next.url) ? attachHls(el, next) : attachFile(el, next);
+        pendingAudio = undefined;
+        pendingSubtitle = undefined;
+        subtitleId = null;
+        open(next, false);
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
       close() {
@@ -383,9 +497,21 @@ export function videoEngine(
           return;
         }
         const audio = video.current && audioTracksOf(video.current);
-        if (!audio) return;
-        listed(audio).forEach((t, i) => (t.enabled = String(i) === id));
-        set({ audio: id });
+        if (audio?.length) {
+          listed(audio).forEach((t, i) => (t.enabled = String(i) === id));
+          set({ audio: id });
+          return;
+        }
+        // Native HLS that can't switch the playlist's audio: hls.js can.
+        if (
+          mode !== 'native' ||
+          nativeSwitchesTracks() ||
+          Number(id) === nativeAudio()
+        )
+          return;
+        pendingAudio = Number(id);
+        if (toHlsJs()) set({ audio: id });
+        else pendingAudio = undefined;
       },
       setSubtitle,
       setSubtitleDelay(ms) {
@@ -415,7 +541,7 @@ export function videoEngine(
           }
         : undefined,
       // AirPlay, or a cast device the browser reaches with the video's own
-      // address; never one fed through Media Source.
+      // address: native HLS or a file, never hls.js's Media Source.
       cast:
         'remote' in HTMLMediaElement.prototype
           ? {
