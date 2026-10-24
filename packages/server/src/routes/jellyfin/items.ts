@@ -73,6 +73,8 @@ import { stremioStreamRateLimiter } from '../../middlewares/ratelimit.js';
 import { StaticFiles } from '../../utils/static-errors.js';
 import {
   ANDROID_PLAYER_CLIENT,
+  bodyField,
+  qs,
   type JellyfinRequestContext,
 } from './context.js';
 import { offerHls } from './hls.js';
@@ -783,6 +785,9 @@ export function mediaSourcesFrom(
         ...ordered.slice(idx + 1),
       ];
   }
+  const audioIndex = Number(
+    qs(req, 'AudioStreamIndex') ?? bodyField(req, 'AudioStreamIndex')
+  );
   return ordered.map((record, i) => {
     const source = buildMediaSource(record, {
       id: i === 0 ? opts.firstId : record.msid,
@@ -803,6 +808,10 @@ export function mediaSourcesFrom(
       playSessionId: memo.psid,
       token,
       profile: opts.profile,
+      audioStreamIndex:
+        Number.isInteger(audioIndex) && audioIndex >= 0
+          ? audioIndex
+          : undefined,
     });
     return source;
   });

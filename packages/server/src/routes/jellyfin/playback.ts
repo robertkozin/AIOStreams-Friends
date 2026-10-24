@@ -20,11 +20,11 @@ import {
   type PlaybackMemo,
   type PlaySupport,
   DebridError,
-  hlsEnabled,
   isUsenetHlsCandidate,
   usenetTokenFor,
 } from '@aiostreams/core';
 import { hlsMasterUrl } from '../api/hls.js';
+import { hlsAudioPlace } from './hls.js';
 import {
   bodyField,
   bodyOf,
@@ -332,8 +332,13 @@ async function hlsMaster(req: Request, res: Response) {
       res.status(415).json({ Message: 'This version has no HLS stream' });
       return;
     }
+    const audioIndex = Number(qs(req, 'AudioStreamIndex'));
+    const audio =
+      Number.isInteger(audioIndex) && audioIndex >= 0
+        ? hlsAudioPlace(source, audioIndex)
+        : undefined;
     res.setHeader('Cache-Control', 'no-store');
-    res.redirect(302, hlsMasterUrl(token));
+    res.redirect(302, hlsMasterUrl(token, audio));
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, msid: source.msid },
@@ -350,12 +355,7 @@ const notTranscoding = (_req: Request, res: Response) => {
   });
 };
 
-router.get(
-  '/Videos/:itemId/master.m3u8',
-  jfOptional((req, res) =>
-    hlsEnabled() ? hlsMaster(req, res) : notTranscoding(req, res)
-  )
-);
+router.get('/Videos/:itemId/master.m3u8', jfOptional(hlsMaster));
 router.get(
   [
     '/Videos/:itemId/main.m3u8',

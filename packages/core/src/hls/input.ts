@@ -1,12 +1,8 @@
-import { appConfig, constants } from '../utils/index.js';
+import { constants } from '../utils/index.js';
 import { parsePlaybackUrl } from '../debrid/utils.js';
 import { decodeStoreAuth, resolvePlaybackTarget } from '../main/failover.js';
 import { unwrapProxyUrl } from '../proxy/token.js';
 import { decodeUsenetStreamUrl } from '../usenet/integration/tokens.js';
-
-export function hlsEnabled(): boolean {
-  return appConfig.usenet.hls.enabled;
-}
 
 const STREAM_TOKEN = /\/api\/v1\/usenet\/stream\/([^/?#]+)/;
 

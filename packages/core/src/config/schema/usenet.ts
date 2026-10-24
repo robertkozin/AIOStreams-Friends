@@ -639,46 +639,4 @@ export const usenetSchema = {
       secret: false,
     },
   },
-  hls: {
-    enabled: {
-      schema: z.boolean(),
-      default: false,
-      label: 'HLS remux',
-      description:
-        'Also offer each native usenet MKV stream as HLS, for players that cannot open MKV (iOS, many TVs, browsers). Segments are cut from the file on demand and copied into fragmented MP4 without re-encoding the video; every audio track becomes its own HLS track, and text subtitles become WebVTT. Audio other than AAC, MP3, Opus and FLAC (AC-3, E-AC-3, DTS, TrueHD) is converted to AAC. Media server clients are given the HLS link as their transcoding URL. Needs **ffmpeg**.',
-      env: 'USENET_HLS_ENABLED',
-      requiresRestart: false,
-      secret: false,
-    },
-    ffmpegPath: {
-      schema: z.string().min(1),
-      default: 'ffmpeg',
-      label: 'ffmpeg path',
-      description:
-        'The ffmpeg program to run. Leave it as **ffmpeg** to use the one on the PATH, which the Docker image includes.',
-      env: 'USENET_HLS_FFMPEG_PATH',
-      requiresRestart: false,
-      secret: false,
-    },
-    segmentDuration: {
-      schema: positiveInt,
-      default: 6,
-      label: 'HLS segment length (s)',
-      description:
-        'The length segments aim for. Segments start on keyframes, so most run a little off it. Shorter starts and seeks faster; longer runs ffmpeg less often.',
-      env: 'USENET_HLS_SEGMENT_DURATION',
-      requiresRestart: false,
-      secret: false,
-    },
-    cacheBytes: {
-      schema: byteSize,
-      default: 10 * GB,
-      label: 'HLS cache size',
-      description:
-        "Disk space for remuxed segments, under the data folder's cache. Viewers of one file share its segments; the least recently used go first.",
-      env: 'USENET_HLS_CACHE_BYTES',
-      requiresRestart: false,
-      secret: false,
-    },
-  },
 } as const satisfies RuntimeConfigSection;

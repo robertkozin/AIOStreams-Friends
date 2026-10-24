@@ -1,5 +1,10 @@
-export { closeHls, serveHls } from './remux.js';
-export { hlsEnabled, isUsenetHlsCandidate, usenetTokenFor } from './input.js';
+export {
+  closeHls,
+  HlsRefusedError,
+  serveHls,
+  type HlsResponse,
+} from './remux.js';
+export { isUsenetHlsCandidate, usenetTokenFor } from './input.js';
 export {
   AbandonedError as HlsAbandonedError,
   FfmpegError as HlsFfmpegError,

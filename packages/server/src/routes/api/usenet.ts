@@ -3,7 +3,6 @@ import {
   createLogger,
   openNativeUsenetStream,
   DebridError,
-  hlsEnabled,
 } from '@aiostreams/core';
 import { mapDebridErrorToStaticFile } from '../../utils/static-errors.js';
 import { serveRangeStream } from '../../utils/range-stream.js';
@@ -63,10 +62,6 @@ router.get(
  * playlist lives under the HLS route, whose relative paths need it there.
  */
 router.get('/hls/:token/master.m3u8', (req: Request, res: Response) => {
-  if (!hlsEnabled()) {
-    res.status(404).json({ success: false, detail: 'HLS is turned off' });
-    return;
-  }
   res.setHeader('Cache-Control', 'no-store');
   res.redirect(302, hlsMasterUrl(String(req.params.token)));
 });

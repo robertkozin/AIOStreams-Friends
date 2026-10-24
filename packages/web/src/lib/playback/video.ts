@@ -1,4 +1,5 @@
 import { t } from '@lingui/core/macro';
+import Hls, { ErrorTypes, Events } from 'hls.js';
 import type React from 'react';
 import { checkSubtitleFile, readSubtitleFile } from '../subtitles/files';
 import { subtitleLine } from '../subtitles/style';
@@ -37,31 +38,21 @@ interface FileTrack {
   text: string;
 }
 
-/**
- * Puts a file's address on the video and returns what takes it off again; by
- * default the video opens it itself.
- */
-export type Attach = (
-  video: HTMLVideoElement,
-  file: EngineFile,
-  fail: (error: string) => void
-) => () => void;
-
-const attachSrc: Attach = (video, file) => {
-  video.src = file.url;
-  return () => {};
-};
+const isHls = (url: string) =>
+  new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
 
 /**
  * The page's own `<video>`. The server's subtitles are `<track>`s, and files
- * the user adds are text tracks after them.
+ * the user adds are text tracks after them. An HLS address plays through
+ * hls.js where the browser has Media Source, and the browser's own HLS where
+ * it doesn't; its audio tracks are then the playlist's.
  */
 export function videoEngine(
-  video: React.RefObject<HTMLVideoElement | null>,
-  attach: Attach = attachSrc
+  video: React.RefObject<HTMLVideoElement | null>
 ): EngineFactory {
   return (emit) => {
     let file: EngineFile | null = null;
+    let hls: Hls | null = null;
     let elements: HTMLTrackElement[] = [];
     let files: FileTrack[] = [];
     let delayMs = 0;
@@ -104,7 +95,15 @@ export function videoEngine(
     };
     const listTracks = () => {
       const audio = video.current && audioTracksOf(video.current);
-      const audioTracks = audio ? listed(audio) : [];
+      const audioTracks: AudioTrack[] = hls
+        ? hls.audioTracks.map((t, i) => ({
+            enabled: i === hls!.audioTrack,
+            label: t.name,
+            language: t.lang ?? '',
+          }))
+        : audio
+          ? listed(audio)
+          : [];
       const tracks: EngineTrack[] = [
         ...audioTracks.map((t, i) => ({
           id: String(i),
@@ -134,6 +133,38 @@ export function videoEngine(
       set({ subtitle: id });
     };
     const set = (state: EngineState) => emit({ type: 'state', state });
+    const attachFile = (el: HTMLVideoElement, next: EngineFile) => {
+      el.src = next.url;
+      return () => {};
+    };
+    const attachHls = (el: HTMLVideoElement, next: EngineFile) => {
+      if (!Hls.isSupported()) return attachFile(el, next);
+      const player = new Hls({
+        startPosition: next.startMs / 1000,
+        // The server's subtitles are already `<track>`s.
+        enableWebVTT: false,
+      });
+      hls = player;
+      let recovered = false;
+      player.on(Events.AUDIO_TRACKS_UPDATED, listTracks);
+      player.on(Events.AUDIO_TRACK_SWITCHED, listTracks);
+      player.on(Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        if (data.type === ErrorTypes.NETWORK_ERROR) return player.startLoad();
+        if (data.type === ErrorTypes.MEDIA_ERROR && !recovered) {
+          recovered = true;
+          return player.recoverMediaError();
+        }
+        // eslint-disable-next-line lingui/no-unlocalized-strings -- hls.js's own error name
+        emit({ type: 'failed', error: `HLS: ${data.details}` });
+      });
+      player.loadSource(next.url);
+      player.attachMedia(el);
+      return () => {
+        player.destroy();
+        if (hls === player) hls = null;
+      };
+    };
     const removeElements = () => {
       for (const e of elements) e.remove();
       elements = [];
@@ -223,7 +254,7 @@ export function videoEngine(
         el.autoplay = !next.paused;
         if (next.paused) set({ paused: true });
         unattach();
-        unattach = attach(el, next, (error) => emit({ type: 'failed', error }));
+        unattach = isHls(next.url) ? attachHls(el, next) : attachFile(el, next);
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
       close() {
@@ -257,6 +288,11 @@ export function videoEngine(
         if (video.current) video.current.playbackRate = rate;
       },
       setAudio(id) {
+        if (hls) {
+          hls.audioTrack = Number(id);
+          set({ audio: id });
+          return;
+        }
         const audio = video.current && audioTracksOf(video.current);
         if (!audio) return;
         listed(audio).forEach((t, i) => (t.enabled = String(i) === id));

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PassThrough, pipeline, type Readable } from 'node:stream';
 import {
@@ -10,8 +11,8 @@ import {
   type ServedFile,
   type SourceProvider,
 } from '@rimjoeh/mkv-remuxer';
-import { config as appConfig } from '../config/index.js';
 import { createLogger } from '../logging/logger.js';
+import { withDefaultAudio } from './master.js';
 import { getCacheFolder } from '../utils/general.js';
 import { CommandPriority } from '../usenet/types.js';
 import {
@@ -23,8 +24,24 @@ import {
   decodeUsenetStreamToken,
   type UsenetStreamToken,
 } from '../usenet/integration/tokens.js';
+import {
+  streamRegistry,
+  usenetTargetKey,
+  type StreamHandle,
+} from '../stream-sessions/index.js';
 
 const logger = createLogger('hls');
+
+const FFMPEG_PATH = 'ffmpeg';
+/** Apple's recommendation; shorter starts and seeks faster but runs ffmpeg more. */
+const SEGMENT_SECONDS = 6;
+const SEGMENT_CACHE_BYTES = 10 * 1000 ** 3;
+const METADATA_CACHE_BYTES = 500 * 1000 ** 2;
+/** A viewer that asks for nothing this long has stopped, or paused. */
+const VIEWER_IDLE_MS = 60_000;
+/** Files asked for within this long are in use, and their indexes stay. */
+const ACTIVE_MS = 30 * 60_000;
+const MAX_READERS = 1000;
 
 const remuxLogger: Logger = {
   debug: (message, fields) => logger.debug(fields ?? {}, message),
@@ -33,20 +50,91 @@ const remuxLogger: Logger = {
   error: (message, fields) => logger.error(fields ?? {}, message),
 };
 
+/** HLS refused by the stream limits or a ban, as a direct stream would be. */
+export class HlsRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * One player's HLS of one file: a single stream in the registry for as long
+ * as it keeps asking, however many reads and cached segments serve it.
+ */
+interface Viewer {
+  key: string;
+  handle: StreamHandle;
+  /** Aborted when the stream is killed from the dashboard or for a ban. */
+  abort: AbortController;
+  timer?: NodeJS.Timeout;
+}
+
+const viewers = new Map<string, Viewer>();
+
+function closeViewer(viewer: Viewer): void {
+  clearTimeout(viewer.timer);
+  if (viewers.get(viewer.key) === viewer) viewers.delete(viewer.key);
+  viewer.handle.close();
+}
+
+function viewerFor(token: UsenetStreamToken, clientIp?: string): Viewer {
+  const username = token.owner ?? '';
+  const targetKey = usenetTargetKey(
+    token.hash,
+    token.fileIndex,
+    token.innerPath
+  );
+  const key = `${username}|${clientIp ?? ''}|${targetKey}`;
+  let viewer = viewers.get(key);
+  if (!viewer) {
+    const admitted = streamRegistry.open({
+      transport: 'usenet',
+      username,
+      clientIp,
+      targetKey,
+      filename: token.filename,
+    });
+    if (!admitted.ok) {
+      const { reason, message } = admitted.verdict;
+      logger.info({ username, hash: token.hash, reason }, 'hls refused');
+      throw new HlsRefusedError(
+        message ?? 'stream not permitted',
+        reason === 'banned' || reason === 'blocked' ? 403 : 429
+      );
+    }
+    const created: Viewer = {
+      key,
+      handle: admitted.handle,
+      abort: new AbortController(),
+    };
+    admitted.handle.onKill(() => {
+      created.abort.abort(new Error('stream stopped'));
+      closeViewer(created);
+    });
+    viewers.set(key, created);
+    viewer = created;
+  }
+  const live = viewer;
+  clearTimeout(live.timer);
+  live.timer = setTimeout(() => closeViewer(live), VIEWER_IDLE_MS);
+  live.timer.unref?.();
+  return live;
+}
+
 interface Reader {
   token: UsenetStreamToken;
   clientIp?: string;
+  viewer: Viewer;
   seenAt: number;
 }
 
-/** Files asked for within this long are in use, and their indexes stay. */
-const ACTIVE_MS = 30 * 60_000;
-const MAX_READERS = 1000;
-
 /**
- * Who reads each file, by `sourceId/fileId`: the latest request's token, so
- * reads count as that user's streams from that address. Rebuilt from the URL
- * of every request, as each one carries its token.
+ * Who reads each file, by `sourceId/fileId`: the latest request's viewer, so
+ * reads count toward that player's stream. Rebuilt from the URL of every
+ * request, as each one carries its token.
  */
 const readers = new Map<string, Reader>();
 
@@ -96,7 +184,7 @@ const provider: SourceProvider = {
   },
 
   async lease(sourceId, fileId, hint, work) {
-    const { token, clientIp } = readerOf(sourceId, fileId);
+    const { token, clientIp, viewer } = readerOf(sourceId, fileId);
     const { size } = await openUsenetFile(token);
     let priority =
       hint.purpose === 'media' && !hint.foreground
@@ -114,9 +202,10 @@ const provider: SourceProvider = {
           const opened = await openUsenetStream(token, {
             start,
             end,
-            signal,
+            signal: AbortSignal.any([signal, viewer.abort.signal]),
             clientIp,
             priority,
+            viewer: viewer.handle,
           });
           return opened.stream;
         }),
@@ -148,48 +237,50 @@ const provider: SourceProvider = {
   },
 };
 
-let service: { key: string; started: Promise<HlsService> } | undefined;
+let service: Promise<HlsService> | undefined;
 
 function hlsService(): Promise<HlsService> {
-  const settings = appConfig.usenet.hls;
-  const key = JSON.stringify([
-    settings.ffmpegPath,
-    settings.segmentDuration,
-    settings.cacheBytes,
-  ]);
-  if (service?.key !== key) {
-    const previous = service?.started;
-    void previous?.then((s) => s.close()).catch(() => undefined);
+  if (!service) {
     const started = createHlsService({
       cacheDir: join(getCacheFolder(), 'remux'),
       provider,
-      ffmpegPath: settings.ffmpegPath,
-      segmentDuration: settings.segmentDuration,
-      segmentCacheBytes: settings.cacheBytes,
-      metadataCacheBytes: Math.max(64 * 1024 * 1024, settings.cacheBytes / 20),
+      ffmpegPath: FFMPEG_PATH,
+      segmentDuration: SEGMENT_SECONDS,
+      segmentCacheBytes: SEGMENT_CACHE_BYTES,
+      metadataCacheBytes: METADATA_CACHE_BYTES,
       logger: remuxLogger,
     });
     // A failed start (ffmpeg missing) is tried again on the next request.
     started.catch(() => {
-      if (service?.started === started) service = undefined;
+      if (service === started) service = undefined;
     });
-    service = { key, started };
+    service = started;
   }
-  return service.started;
+  return service;
+}
+
+export interface HlsResponse {
+  file: ServedFile;
+  /** Sent in place of the file: a master playlist rewritten for this request. */
+  body?: string;
+  /** Count what reached the player toward its stream. */
+  sent(bytes: number): void;
 }
 
 /**
  * One HLS path of a usenet stream: `master.m3u8`, a media playlist, an init
  * segment or a segment, rendered on demand. The token is the stream URL's, and
- * the only credential.
+ * the only credential. `audio` picks the default audio track of a master by
+ * its place among the file's audio tracks.
  */
 export async function serveHls(
   token: string,
   parts: string[],
-  opts: { clientIp?: string; signal?: AbortSignal }
-): Promise<ServedFile> {
+  opts: { clientIp?: string; signal?: AbortSignal; audio?: number }
+): Promise<HlsResponse> {
   const decoded = decodeUsenetStreamToken(token);
   if (!decoded) throw new NotFoundError('invalid or tampered token');
+  const viewer = viewerFor(decoded, opts.clientIp);
   const { sourceId, fileId } = idsOf(decoded);
   const key = `${sourceId}/${fileId}`;
   // Re-inserted, so the map runs oldest first.
@@ -197,15 +288,27 @@ export async function serveHls(
   readers.set(key, {
     token: decoded,
     clientIp: opts.clientIp,
+    viewer,
     seenAt: Date.now(),
   });
   if (readers.size > MAX_READERS) readers.delete(readers.keys().next().value!);
+
   const hls = await hlsService();
-  return hls.resolve(sourceId, fileId, parts, opts.signal);
+  const signal = opts.signal
+    ? AbortSignal.any([opts.signal, viewer.abort.signal])
+    : viewer.abort.signal;
+  const file = await hls.resolve(sourceId, fileId, parts, signal);
+  const sent = (bytes: number) => viewer.handle.addBytes(bytes);
+  if (parts.join('/') === 'master.m3u8' && opts.audio !== undefined) {
+    const master = await readFile(file.path, 'utf8');
+    return { file, body: withDefaultAudio(master, opts.audio), sent };
+  }
+  return { file, sent };
 }
 
 export async function closeHls(): Promise<void> {
-  const started = service?.started;
+  for (const viewer of [...viewers.values()]) closeViewer(viewer);
+  const started = service;
   service = undefined;
   (await started?.catch(() => undefined))?.close();
 }

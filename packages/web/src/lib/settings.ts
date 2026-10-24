@@ -524,9 +524,6 @@ export type AudioChannels = (typeof AUDIO_CHANNELS)[number];
 /** What plays versions inside the Android app. */
 export const PLAYER_ENGINES = ['auto', 'mpv', 'exoplayer'] as const;
 export type PlayerEngine = (typeof PLAYER_ENGINES)[number];
-/** What plays versions in the page's own video: the file itself, or the server's HLS remux of it. */
-export const PAGE_ENGINES = ['file', 'hls'] as const;
-export type PageEngine = (typeof PAGE_ENGINES)[number];
 /** Megabytes, or `auto` to size it from the device's memory. */
 export const PARTY_REACTIONS = ['👍', '😂', '😮', '😢', '❤️', '🔥'] as const;
 
@@ -859,11 +856,6 @@ export const settings = {
       'auto',
       PLAYER_ENGINES,
       ['aiostreams-android-engine']
-    ),
-    pageEngine: device<PageEngine>(
-      'aiostreams-web-player-page-engine',
-      'file',
-      PAGE_ENGINES
     ),
     cacheSize: device<CacheSize>(
       'aiostreams-web-player-cache-size',

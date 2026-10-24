@@ -17,6 +17,7 @@ import { lastVersions, playableSources } from '../lib/playback/play';
 import { chosenPlayer } from '../lib/playback/player-choice';
 import {
   directUrl,
+  pageUrl,
   requiredHeaders,
   useYouTubeStream,
 } from '../lib/playback/stream';
@@ -27,7 +28,6 @@ import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
 import { moviEngine } from '../lib/playback/movi';
 import { videoEngine } from '../lib/playback/video';
-import { hlsEngine, hlsUrl } from '../lib/playback/hls';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -559,23 +559,20 @@ function Player({
     [local]
   );
   const isPlainBrowser = currentHost().name === 'browser';
-  const [pageEngine] = useSetting(settings.player.pageEngine);
-  const hls =
-    !hostPlayer && !local?.local && !youTube && pageEngine === 'hls'
-      ? hlsUrl(client, source)
-      : null;
-  const fallbackEngine = hls
-    ? hlsEngine(video)
-    : isPlainBrowser
-      ? moviEngine(video)
-      : videoEngine(video);
+  // The page's own video plays the HLS remux where it can; a plain browser
+  // still needs movi for a file.
+  const page = pageUrl(client, item.Id!, source);
+  const playsHls = !hostPlayer && !local?.local && !youTube && page.hls;
+  const fallbackEngine =
+    isPlainBrowser && !playsHls ? moviEngine(video) : videoEngine(video);
   const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
     url: local?.local
       ? local.local.video
-      : (youTube ?? hls ?? directUrl(client, item.Id!, source)),
-    headers: local?.local ? undefined : requiredHeaders(source),
+      : (youTube ??
+        (playsHls ? page.url : directUrl(client, item.Id!, source))),
+    headers: local?.local || playsHls ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,

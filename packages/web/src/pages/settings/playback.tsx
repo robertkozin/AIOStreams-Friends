@@ -32,7 +32,6 @@ import {
   SEGMENT_TYPES,
   CACHE_SIZES,
   type CacheSize,
-  type PageEngine,
   type PlayerEngine,
   type NextPrompt,
   type SegmentAction,
@@ -402,12 +401,6 @@ export function PlaybackSection() {
   );
 }
 
-const PAGE_ENGINE_OPTIONS: { value: PageEngine; label: string }[] = [
-  // eslint-disable-next-line lingui/no-unlocalized-strings -- a test setting, English only, to keep the locale files untouched
-  { value: 'file', label: 'File' },
-  { value: 'hls', label: 'HLS' },
-];
-
 const engineOptions = (): { value: PlayerEngine; label: string }[] => [
   { value: 'auto', label: t`Automatic` },
   { value: 'exoplayer', label: 'ExoPlayer' },
@@ -445,7 +438,6 @@ function PlayerCard() {
   const [link, setLink] = useSetting(settings.player.link);
   const [engine, setEngine] = useSetting(settings.player.engine);
   const [cacheSize, setCacheSize] = useSetting(settings.player.cacheSize);
-  const [pageEngine, setPageEngine] = useSetting(settings.player.pageEngine);
   const found = useExternalPlayers();
   const launched = LAUNCHED_PLAYERS.find((p) => p.id === player);
   const preset = linkPreset(player);
@@ -526,20 +518,6 @@ function PlayerCard() {
           />
         </>
       )}
-      {!shellHost() &&
-        !currentHost().player &&
-        !preset &&
-        player !== CUSTOM_LINK && (
-          <Select
-            // eslint-disable-next-line lingui/no-unlocalized-strings -- a test setting, English only, to keep the locale files untouched
-            label="Stream"
-            // eslint-disable-next-line lingui/no-unlocalized-strings -- as above
-            help="The file as it is, or the server's HLS remux of it (native usenet MKV versions, where the server has HLS turned on): fragmented MP4 with every audio track, played with hls.js. Other versions play the file."
-            options={PAGE_ENGINE_OPTIONS}
-            value={pageEngine}
-            onValueChange={(v) => setPageEngine(v as PageEngine)}
-          />
-        )}
       {launched && (
         <SettingsRow
           label={t`Your ${name}`}

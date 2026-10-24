@@ -4,28 +4,36 @@ import {
   constants,
   createLogger,
   DebridError,
-  hlsEnabled,
   HlsAbandonedError,
   HlsFfmpegError,
   HlsMatroskaError,
   HlsNotFoundError,
+  HlsRefusedError,
   HlsTimeoutError,
   HlsUnsupportedError,
   serveHls,
 } from '@aiostreams/core';
 import { corsMiddleware } from '../../middlewares/cors.js';
+import { hlsRateLimiter } from '../../middlewares/ratelimit.js';
 
 const logger = createLogger('server:hls');
 const router: Router = Router();
 
 router.use(corsMiddleware);
+router.use(hlsRateLimiter);
 
-/** Where a usenet stream token's HLS starts; every other path is relative to it. */
-export function hlsMasterUrl(token: string): string {
-  return `${appConfig.bootstrap.baseUrl}/api/v${constants.API_VERSION}/hls/${token}/master.m3u8`;
+/**
+ * Where a usenet stream token's HLS starts; every other path is relative to
+ * it. `audio` makes that audio track, by its place among the file's audio
+ * tracks, the one players start with.
+ */
+export function hlsMasterUrl(token: string, audio?: number): string {
+  const url = `${appConfig.bootstrap.baseUrl}/api/v${constants.API_VERSION}/hls/${token}/master.m3u8`;
+  return audio === undefined ? url : `${url}?audio=${audio}`;
 }
 
 function statusOf(err: unknown): number | undefined {
+  if (err instanceof HlsRefusedError) return err.status;
   if (err instanceof HlsNotFoundError) return 404;
   if (err instanceof HlsUnsupportedError || err instanceof HlsMatroskaError)
     return 415;
@@ -40,22 +48,29 @@ function statusOf(err: unknown): number | undefined {
  * init segments and segments, rendered on demand by the remuxer.
  */
 router.get('/:token/{*parts}', async (req: Request, res: Response) => {
-  if (!hlsEnabled()) {
-    res.status(404).json({ success: false, detail: 'HLS is turned off' });
-    return;
-  }
   const abort = new AbortController();
   res.on('close', () => {
     if (!res.writableFinished)
       abort.abort(new HlsAbandonedError('the player went away'));
   });
   const parts = (req.params.parts as unknown as string[] | undefined) ?? [];
+  const audio = Number(req.query.audio);
   try {
-    const file = await serveHls(String(req.params.token), parts, {
+    const served = await serveHls(String(req.params.token), parts, {
       clientIp: req.requestIp || req.ip || req.socket.remoteAddress,
       signal: abort.signal,
+      audio: Number.isInteger(audio) && audio >= 0 ? audio : undefined,
     });
+    const { file } = served;
+    res.on('finish', () =>
+      served.sent(Number(res.getHeader('Content-Length')) || 0)
+    );
     res.setHeader('Content-Type', file.contentType);
+    if (served.body !== undefined) {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(served.body);
+      return;
+    }
     res.setHeader('Cache-Control', file.cacheControl);
     res.sendFile(file.path, { headers: { 'Content-Type': file.contentType } });
   } catch (err) {

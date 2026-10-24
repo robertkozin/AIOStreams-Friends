@@ -47,6 +47,7 @@ import { appConfig } from '../../utils/index.js';
 import {
   streamRegistry,
   usenetTargetKey,
+  type StreamHandle,
 } from '../../stream-sessions/index.js';
 import { usenetEngineRegistry, getUsenetEngineConfig } from './engine.js';
 import { fetchNzb, parseNzbCached, canonicaliseNzbHash } from './library.js';
@@ -714,6 +715,23 @@ export interface OpenUsenetStreamOptions {
   share?: boolean;
   /** Low for a read no player is waiting on, such as a remux rendering ahead. */
   priority?: CommandPriority;
+  /**
+   * The HLS viewer this read serves. It was admitted already and counts the
+   * bytes it sends, so the read neither opens a stream nor counts its own.
+   */
+  viewer?: StreamHandle;
+}
+
+/** A read inside a viewer's stream: its details reach it, its bytes don't. */
+function joinedRead(viewer: StreamHandle): StreamHandle {
+  return {
+    sessionId: viewer.sessionId,
+    addBytes: () => {},
+    setInfo: (info) => viewer.setInfo({ size: info.size }),
+    attach: () => {},
+    onKill: () => {},
+    close: () => {},
+  };
 }
 
 export async function openNativeUsenetStream(
@@ -771,19 +789,22 @@ export async function openUsenetStream(
   }
 
   // Before the NZB is fetched and parsed, so a refused stream costs nothing.
-  const admitted = streamRegistry.open({
-    transport: 'usenet',
-    username: decoded.owner ?? '',
-    share: opts.share,
-    clientIp: opts.clientIp,
-    targetKey: usenetTargetKey(
-      decoded.hash,
-      decoded.fileIndex,
-      decoded.innerPath
-    ),
-    filename: decoded.filename,
-    start: opts.start,
-  });
+  // A viewer's read was admitted with the viewer, which counts what it sends.
+  const admitted = opts.viewer
+    ? { ok: true as const, handle: joinedRead(opts.viewer) }
+    : streamRegistry.open({
+        transport: 'usenet',
+        username: decoded.owner ?? '',
+        share: opts.share,
+        clientIp: opts.clientIp,
+        targetKey: usenetTargetKey(
+          decoded.hash,
+          decoded.fileIndex,
+          decoded.innerPath
+        ),
+        filename: decoded.filename,
+        start: opts.start,
+      });
   if (!admitted.ok) {
     logger.info(
       {

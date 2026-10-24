@@ -1,5 +1,5 @@
 import {
-  hlsEnabled,
+  buildMediaStreams,
   isUsenetHlsCandidate,
   type DeviceProfile,
   type JellyfinMediaSource,
@@ -29,9 +29,26 @@ function directPlaysMkv(profile: DeviceProfile | undefined): boolean {
 }
 
 /**
+ * Where Jellyfin's audio track sits among the version's audio tracks, which
+ * is how the remuxer orders its audio renditions: both follow the file.
+ */
+export function hlsAudioPlace(
+  record: MediaSourceRecord,
+  audioStreamIndex: number
+): number | undefined {
+  const audio = buildMediaStreams(record, {
+    subtitleFormat: () => 'srt',
+    subtitleUrl: () => '',
+  }).filter((s) => s.Type === 'Audio');
+  const at = audio.findIndex((s) => s.Index === audioStreamIndex);
+  return at >= 0 ? at : undefined;
+}
+
+/**
  * Gives a native usenet MKV version the HLS remux as its transcoding URL, and
  * a client whose profile can't direct play MKV is sent to it. Every audio
- * track is in the playlist, so the client switches among them itself.
+ * track is in the playlist; the one the client picked (or the version's
+ * default) is the one it starts with.
  */
 export function offerHls(
   source: JellyfinMediaSource,
@@ -41,14 +58,19 @@ export function offerHls(
     playSessionId: string;
     token?: string;
     profile?: DeviceProfile;
+    audioStreamIndex?: number;
   }
 ): void {
-  if (!hlsEnabled() || record.live || record.notice) return;
+  if (record.live || record.notice) return;
   if (record.container !== 'mkv' || !isUsenetHlsCandidate(record.url)) return;
   const query = new URLSearchParams({
     MediaSourceId: record.msid,
     PlaySessionId: opts.playSessionId,
   });
+  const audio =
+    opts.audioStreamIndex ??
+    (source.DefaultAudioStreamIndex as number | undefined);
+  if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
   if (opts.token) query.set('api_key', opts.token);
   source.SupportsTranscoding = true;
   source.TranscodingUrl = `/videos/${opts.itemId}/master.m3u8?${query}`;
