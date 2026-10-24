@@ -102,6 +102,9 @@ export function videoEngine(
     // Picked in native HLS, for hls.js to apply once it lists its tracks.
     let pendingSubtitle: number | undefined;
     let subtitleId: string | null = null;
+    // Whether this file has played; until then its video is paused only
+    // because autoplay hasn't begun.
+    let begun = false;
     let elements: HTMLTrackElement[] = [];
     let files: FileTrack[] = [];
     let delayMs = 0;
@@ -370,7 +373,10 @@ export function videoEngine(
           emit({ type: 'loaded' });
         },
         durationchange: () => set({ durationMs: el.duration * 1000 || 0 }),
-        playing: () => set({ started: true, paused: false, waiting: false }),
+        playing: () => {
+          begun = true;
+          set({ started: true, paused: false, waiting: false });
+        },
         pause: () => set({ paused: true }),
         play: () => set({ paused: false }),
         waiting: () => set({ waiting: true }),
@@ -461,8 +467,11 @@ export function videoEngine(
         {
           ...file,
           ...changes,
-          startMs: el.currentTime > 0 ? el.currentTime * 1000 : file.startMs,
-          paused: el.paused,
+          // Before it has played, as it was asked to open: the track picks
+          // that reopen it land as it loads, before autoplay begins.
+          startMs:
+            begun && el.currentTime > 0 ? el.currentTime * 1000 : file.startMs,
+          paused: begun ? el.paused : file.paused,
         },
         forceHlsJs
       );
@@ -475,6 +484,7 @@ export function videoEngine(
       load(next) {
         pendingSubtitle = undefined;
         subtitleId = null;
+        begun = false;
         open(next, false);
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
