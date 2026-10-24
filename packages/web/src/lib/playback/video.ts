@@ -11,6 +11,14 @@ import type {
   EngineTrack,
 } from './engine';
 import { isFullscreen, toggleDocumentFullscreen } from './fullscreen';
+import {
+  STATS_PAGES,
+  videoStatsText,
+  type FragmentLoad,
+  type VideoMode,
+} from './video-stats';
+
+const STATS_MS = 1000;
 
 const SUBTITLE_TYPES = ['srt', 'vtt', 'ass', 'ssa'];
 
@@ -105,6 +113,12 @@ export function videoEngine(
     // Whether this file has played; until then its video is paused only
     // because autoplay hasn't begun.
     let begun = false;
+    // For the statistics: why hls.js plays, how often the stream reopened,
+    // and the last picture segment hls.js fetched.
+    let hlsWhy: Extract<VideoMode, { kind: 'hlsjs' }>['why'] = 'no native HLS';
+    let reopens = 0;
+    let lastFragment: FragmentLoad | undefined;
+    let statsTimer = 0;
     let elements: HTMLTrackElement[] = [];
     let files: FileTrack[] = [];
     let delayMs = 0;
@@ -259,7 +273,7 @@ export function videoEngine(
       subtitleId = id;
       if (!hls && !nativeSwitchesTracks() && id?.startsWith(HLS_SUBTITLE)) {
         pendingSubtitle = Number(id.slice(HLS_SUBTITLE.length));
-        if (toHlsJs()) return set({ subtitle: id });
+        if (toHlsJs('subtitle')) return set({ subtitle: id });
         pendingSubtitle = undefined;
       }
       elements.forEach((e, i) => {
@@ -297,6 +311,8 @@ export function videoEngine(
         return () => {};
       }
       mode = 'hlsjs';
+      if (!forceHlsJs) hlsWhy = 'no native HLS';
+      lastFragment = undefined;
       const player = new Hls({
         startPosition: next.startMs / 1000,
       });
@@ -317,6 +333,16 @@ export function videoEngine(
       player.on(Events.SUBTITLE_FRAG_PROCESSED, () => {
         placeCues();
         shiftCues();
+      });
+      player.on(Events.FRAG_LOADED, (_event, { frag }) => {
+        if (frag.type !== 'main') return;
+        const { loading, loaded } = frag.stats;
+        lastFragment = {
+          sn: typeof frag.sn === 'number' ? frag.sn : -1,
+          bytes: loaded,
+          ms: Math.round(loading.end - loading.start),
+          durationS: frag.duration,
+        };
       });
       player.on(Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
@@ -400,7 +426,7 @@ export function videoEngine(
         ratechange: () => set({ rate: el.playbackRate }),
         ended: () => emit({ type: 'ended' }),
         error: () => {
-          if (mode === 'native' && toHlsJs()) return;
+          if (mode === 'native' && toHlsJs('native failed')) return;
           emit({
             type: 'failed',
             error: t({
@@ -475,20 +501,47 @@ export function videoEngine(
         },
         forceHlsJs
       );
+      reopens++;
       if (keep && !keep.startsWith(HLS_SUBTITLE)) setSubtitle(keep);
       return true;
     };
-    const toHlsJs = () => reopen({}, true);
+    const toHlsJs = (why: typeof hlsWhy) => {
+      const before = hlsWhy;
+      hlsWhy = why;
+      if (reopen({}, true)) return true;
+      hlsWhy = before;
+      return false;
+    };
+    const statsText = () => {
+      const el = video.current;
+      if (!el || !file) return '';
+      return videoStatsText({
+        video: el,
+        mode:
+          mode === 'hlsjs' ? { kind: 'hlsjs', why: hlsWhy } : { kind: mode },
+        hls,
+        url: file.url,
+        reopens,
+        lastFragment,
+        nativeAudioIndex:
+          audioIndexOf(file.url) ??
+          file.source.DefaultAudioStreamIndex ??
+          undefined,
+      });
+    };
 
     return {
       load(next) {
         pendingSubtitle = undefined;
         subtitleId = null;
         begun = false;
+        reopens = 0;
         open(next, false);
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
       close() {
+        clearInterval(statsTimer);
+        statsTimer = 0;
         detach();
         detach = () => {};
         unattach();
@@ -553,6 +606,17 @@ export function videoEngine(
         placeCues();
       },
       toggleFullscreen: toggleDocumentFullscreen,
+      stats: {
+        pages: STATS_PAGES,
+        show(page) {
+          clearInterval(statsTimer);
+          statsTimer = 0;
+          if (!page) return emit({ type: 'stats-text', text: undefined });
+          const tick = () => emit({ type: 'stats-text', text: statsText() });
+          tick();
+          statsTimer = window.setInterval(tick, STATS_MS);
+        },
+      },
       togglePictureInPicture: pipSupported()
         ? () => {
             const el = video.current as WebKitVideo | null;
