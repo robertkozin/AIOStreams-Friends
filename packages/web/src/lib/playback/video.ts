@@ -38,6 +38,9 @@ interface FileTrack {
   text: string;
 }
 
+/** Ids of the HLS playlist's own subtitle renditions, by their place in it. */
+const HLS_SUBTITLE = 'hls-subtitle:';
+
 const isHls = (url: string) =>
   new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
 
@@ -59,26 +62,26 @@ export function videoEngine(
     let line = subtitleLine();
     let detach = () => {};
     let unattach = () => {};
-    // A text track's cues load late, so each one remembers the shift it has.
-    const shifted = new WeakMap<TextTrack, number>();
+    // Cues load late, and an HLS track's a segment at a time, so each cue
+    // remembers the shift it has.
+    const shifted = new WeakMap<TextTrackCue, number>();
     // Browsers disagree on where a cue the file leaves unplaced goes.
     const placed = new WeakSet<VTTCue>();
 
-    const textTracks = () => [
-      ...elements.map((e) => e.track),
-      ...files.map((f) => f.track),
-    ];
+    // The server's `<track>`s, the user's files, and hls.js's own tracks.
+    const textTracks = () =>
+      video.current
+        ? Array.from(video.current.textTracks)
+        : [...elements.map((e) => e.track), ...files.map((f) => f.track)];
     const shiftCues = () => {
       for (const track of textTracks()) {
-        const cues = track.cues;
-        if (!cues?.length) continue;
-        const by = (delayMs - (shifted.get(track) ?? 0)) / 1000;
-        if (!by) continue;
-        for (const cue of Array.from(cues)) {
+        for (const cue of Array.from(track.cues ?? [])) {
+          const by = (delayMs - (shifted.get(cue) ?? 0)) / 1000;
+          if (!by) continue;
           cue.startTime += by;
           cue.endTime += by;
+          shifted.set(cue, delayMs);
         }
-        shifted.set(track, delayMs);
       }
     };
     const placeCues = () => {
@@ -112,6 +115,17 @@ export function videoEngine(
           lang: t.language,
           title: t.label,
         })),
+        // The file's text subtitles, as the playlist's WebVTT renditions.
+        ...(hls?.subtitleTracks ?? []).map((t, i) => ({
+          id: `${HLS_SUBTITLE}${i}`,
+          type: 'subtitle' as const,
+          label: ownTrackLabel(t.name, t.lang, i + 1),
+          lang: t.lang,
+          title: t.name,
+          forced: t.forced,
+          default: t.default,
+          file: true,
+        })),
         ...files.map(({ id, label }) => ({
           id,
           type: 'subtitle' as const,
@@ -129,6 +143,13 @@ export function videoEngine(
       });
       for (const f of files)
         f.track.mode = f.id === id ? 'showing' : 'disabled';
+      if (hls) {
+        const own = id?.startsWith(HLS_SUBTITLE)
+          ? Number(id.slice(HLS_SUBTITLE.length))
+          : -1;
+        hls.subtitleDisplay = own >= 0;
+        hls.subtitleTrack = own;
+      }
       shiftCues();
       set({ subtitle: id });
     };
@@ -141,13 +162,18 @@ export function videoEngine(
       if (!Hls.isSupported()) return attachFile(el, next);
       const player = new Hls({
         startPosition: next.startMs / 1000,
-        // The server's subtitles are already `<track>`s.
-        enableWebVTT: false,
       });
+      // The playlist's subtitles show only once one is picked.
+      player.subtitleDisplay = false;
       hls = player;
       let recovered = false;
       player.on(Events.AUDIO_TRACKS_UPDATED, listTracks);
       player.on(Events.AUDIO_TRACK_SWITCHED, listTracks);
+      player.on(Events.SUBTITLE_TRACKS_UPDATED, listTracks);
+      player.on(Events.SUBTITLE_FRAG_PROCESSED, () => {
+        placeCues();
+        shiftCues();
+      });
       player.on(Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
         if (data.type === ErrorTypes.NETWORK_ERROR) return player.startLoad();
