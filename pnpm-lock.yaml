@@ -377,6 +377,12 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/mkv-remuxer:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+
   packages/server:
     dependencies:
       '@aiostreams/core':
@@ -10573,7 +10579,7 @@ snapshots:
 
   '@types/proxy-addr@2.0.3':
     dependencies:
-      '@types/node': 24.19.2
+      '@types/node': 25.9.9
 
   '@types/qs@6.15.1': {}
 
@@ -10604,7 +10610,7 @@ snapshots:
 
   '@types/ws@8.18.2':
     dependencies:
-      '@types/node': 24.19.2
+      '@types/node': 25.9.9
 
   '@types/yargs-parser@21.0.3': {}
 
