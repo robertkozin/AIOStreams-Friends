@@ -18,9 +18,11 @@ import {
   LuLayers,
   LuListOrdered,
   LuListVideo,
+  LuAirplay,
   LuMaximize,
   LuMinimize,
   LuMinus,
+  LuPictureInPicture2,
   LuPlus,
   LuRatio,
   LuSlidersHorizontal,
@@ -755,6 +757,31 @@ export function OptionButtons({
           onSelect={player.stats.show}
           {...menuState('statistics')}
         />
+      )}
+      {player.cast && !tv && (
+        <ControlButton
+          name="cast"
+          // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's casting is English only, to keep the locale files untouched
+          label="Play on a TV or speaker"
+          onClick={player.cast.prompt}
+        >
+          <LuAirplay />
+        </ControlButton>
+      )}
+      {player.togglePictureInPicture && !tv && (
+        <ControlButton
+          name="picture-in-picture"
+          label={
+            state.pictureInPicture
+              ? // eslint-disable-next-line lingui/no-unlocalized-strings -- as above
+                'Back to the player'
+              : // eslint-disable-next-line lingui/no-unlocalized-strings -- as above
+                'Picture in picture'
+          }
+          onClick={player.togglePictureInPicture}
+        >
+          <LuPictureInPicture2 />
+        </ControlButton>
       )}
       {player.toggleFullscreen && !tv && (
         <ControlButton

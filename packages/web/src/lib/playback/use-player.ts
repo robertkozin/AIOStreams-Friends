@@ -196,6 +196,7 @@ export function usePlayer(
 
   const fileFor = (from: number): EngineFile => ({
     url,
+    hlsUrl: opts.hlsUrl,
     headers: opts.headers,
     startMs: from,
     paused: opts.startPaused,
@@ -366,6 +367,13 @@ export function usePlayer(
     // Reloading restarts playback, so only a new url or start does it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, startMs]);
+
+  // Whether there's a device to cast to depends on what the video plays.
+  const [castable, setCastable] = React.useState(false);
+  React.useEffect(() => {
+    setCastable(false);
+    return engine.cast?.watch(setCastable);
+  }, [engine, url]);
 
   const [thumbnailsOn] = useSetting(settings.controls.thumbnails);
   React.useEffect(() => {
@@ -607,6 +615,9 @@ export function usePlayer(
     subtitleFiles: engine.subtitleFiles,
     toggleFullscreen:
       engine.toggleFullscreen && (() => engine.toggleFullscreen!()),
+    togglePictureInPicture:
+      engine.togglePictureInPicture && (() => engine.togglePictureInPicture!()),
+    cast: castable && engine.cast ? { prompt: engine.cast.prompt } : undefined,
     chapters,
     stats: stats && {
       pages: stats.pages,

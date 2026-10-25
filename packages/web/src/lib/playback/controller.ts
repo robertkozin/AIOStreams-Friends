@@ -103,6 +103,10 @@ export interface PlayerController {
   thumbnails?: ThumbnailFeed;
   /** Missing where the page always fills the screen. */
   toggleFullscreen?: () => void;
+  /** Missing where the player has no window of its own to move into. */
+  togglePictureInPicture?: () => void;
+  /** Present while there's a device to cast to; `prompt` asks which. */
+  cast?: { prompt(): void };
   /** The file's chapters, where the player reads them. */
   chapters?: Chapter[];
   /** Playback statistics over the video, as `text` the page draws for a player that draws none. */
@@ -148,6 +152,8 @@ export interface PlayerOptions {
   item: BaseItemDto;
   source: SourceInfo;
   url: string;
+  /** The server's HLS remux of `url`, which an engine may play instead. */
+  hlsUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   onEnded(): void;

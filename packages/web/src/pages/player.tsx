@@ -17,6 +17,7 @@ import { lastVersions, playableSources } from '../lib/playback/play';
 import { chosenPlayer } from '../lib/playback/player-choice';
 import {
   directUrl,
+  hlsUrl,
   requiredHeaders,
   useYouTubeStream,
 } from '../lib/playback/stream';
@@ -25,7 +26,7 @@ import { currentHost } from '../lib/hosts';
 import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
-import { videoEngine } from '../lib/playback/video';
+import { hlsEngine } from '../lib/playback/hls';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -447,6 +448,10 @@ function Failure({
   );
 }
 
+/** The page's font, as in `theme.css`; a cue doesn't inherit it. */
+// eslint-disable-next-line lingui/no-unlocalized-strings -- a CSS value
+const PAGE_FONT = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+
 /** Sized from the video's height, as a cue is by default; Firefox reads a percentage against the page font. */
 function cueCss(style: SubtitleStyle): string {
   const css = subtitleCss(style);
@@ -456,7 +461,7 @@ function cueCss(style: SubtitleStyle): string {
     color: ${css.color};
     background-color: ${css.backgroundColor};
     text-shadow: ${css.textShadow};
-    ${css.fontFamily ? `font-family: ${css.fontFamily};` : ''}
+    font-family: ${css.fontFamily ?? PAGE_FONT};
   }`;
 }
 
@@ -603,12 +608,19 @@ function Player({
     },
     [local]
   );
-  const own = usePlayer(hostPlayer ?? videoEngine(video), {
+  const fallbackEngine = hlsEngine(video);
+  const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
     url: local?.local
       ? local.local.video
       : (youTube ?? directUrl(client, item.Id!, source)),
+    // The server's remux of the version, which the engine may play instead.
+    // VIDAA's own player takes the file as it is.
+    hlsUrl:
+      local?.local || youTube || currentHost().name === 'vidaa'
+        ? undefined
+        : (hlsUrl(client, source) ?? undefined),
     headers: local?.local ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
     source,
@@ -696,7 +708,9 @@ function Player({
     !player.state.pictureInPicture && (!player.state.started || !!launched);
   React.useLayoutEffect(() => onCovered(covered), [covered, onCovered]);
 
-  if (player.state.pictureInPicture)
+  // The app's own player in its own window; the page's video must stay, or
+  // the browser's picture in picture closes with it.
+  if (player.state.pictureInPicture && hostPlayer)
     return <div data-page="player" className="fixed inset-0" />;
   return (
     <div data-page="player" className="fixed inset-0">

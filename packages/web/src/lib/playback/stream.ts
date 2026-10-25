@@ -34,6 +34,24 @@ export function directUrl(
     : streamUrl(client, itemId, source);
 }
 
+/**
+ * The version's HLS remux link, when the server offers one. `external` lists
+ * its external subtitles in the playlist too, for another player.
+ */
+export function hlsUrl(
+  client: JellyfinClient,
+  source: SourceInfo,
+  opts: { external?: boolean } = {}
+): string | null {
+  const url = source.TranscodingUrl;
+  if (!url || source.TranscodingSubProtocol !== 'hls') return null;
+  const [path, search] = url.split('?');
+  const query = Object.fromEntries(new URLSearchParams(search));
+  delete query.api_key;
+  if (opts.external) query.ExternalSubtitles = 'true';
+  return client.url(path, { ...query, ApiKey: client.token });
+}
+
 export function requiredHeaders(
   source: SourceInfo
 ): Record<string, string> | undefined {

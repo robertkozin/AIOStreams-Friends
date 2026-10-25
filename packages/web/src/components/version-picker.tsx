@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import {
   BiBarChartAlt2,
   BiCopy,
+  BiCopyAlt,
   BiDotsVerticalRounded,
   BiDownload,
   BiErrorCircle,
@@ -35,7 +36,7 @@ import {
   useRefreshPlaybackInfo,
   useSetPlayed,
 } from '../lib/queries';
-import { directUrl } from '../lib/playback/stream';
+import { directUrl, hlsUrl } from '../lib/playback/stream';
 import {
   downloadable,
   downloadsHost,
@@ -784,6 +785,7 @@ function Versions({
           if (isNotice(source))
             return <Notice key={source.Id} notice={source} />;
           const link = directUrl(client, item.Id!, source);
+          const hls = hlsUrl(client, source, { external: true });
           const actions = [
             ...(!download && downloadable(source)
               ? [
@@ -812,6 +814,23 @@ function Versions({
                         onError: () => toast.error(t`Could not copy the link`),
                       }),
                   },
+                  ...(hls
+                    ? [
+                        {
+                          name: 'copy-hls',
+                          // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's HLS is English only, to keep the locale files untouched
+                          label: 'Copy HLS link',
+                          icon: <BiCopyAlt />,
+                          run: () =>
+                            copyToClipboard(hls, {
+                              // eslint-disable-next-line lingui/no-unlocalized-strings -- as above
+                              onSuccess: () => toast.success('HLS link copied'),
+                              onError: () =>
+                                toast.error(t`Could not copy the link`),
+                            }),
+                        },
+                      ]
+                    : []),
                 ]),
           ];
           return (
