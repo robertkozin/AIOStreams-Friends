@@ -1,0 +1,24 @@
+{
+  "name": "@aiostreams/mkv-remuxer",
+  "version": "0.1.4",
+  "private": true,
+  "description": "Remux Matroska and WebM files into HLS (fMP4 and WebVTT) on demand from any random-access byte source. Vendored from https://github.com/FPNDev/mkv-remuxer",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  }
+}
