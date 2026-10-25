@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { StatsAccumulator } from '../stats/accumulator.js';
+import { CommandPriority } from '../types.js';
 import { SeekableStream } from './file-stream.js';
 import { createLogger } from '../../logging/logger.js';
 
@@ -105,7 +106,7 @@ class TrackedSeekableStream implements SeekableStream {
   }
 
   createReadStream(
-    range?: { start?: number; end?: number },
+    range?: { start?: number; end?: number; priority?: CommandPriority },
     signal?: AbortSignal
   ): Readable {
     const out = this.inner.createReadStream(range, signal);

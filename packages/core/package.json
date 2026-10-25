@@ -13,6 +13,7 @@
   "dependencies": {
     "@aiostreams/crypto": "workspace:*",
     "@aiostreams/fsmux": "^0.3.1",
+    "@aiostreams/mkv-remuxer": "workspace:*",
     "@aiostreams/release-parser": "^1.0.1",
     "@torbox/torbox-api": "github:viren070/torbox-sdk-js#dist",
     "bcrypt": "^6.0.0",
