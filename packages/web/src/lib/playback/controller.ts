@@ -145,8 +145,8 @@ export interface PlayerOptions {
   item: BaseItemDto;
   source: SourceInfo;
   url: string;
-  /** Played when `url`, an HLS address, leads nowhere playable. */
-  fallbackUrl?: string;
+  /** The server's HLS remux of `url`, which an engine may play instead. */
+  hlsUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   onEnded(): void;

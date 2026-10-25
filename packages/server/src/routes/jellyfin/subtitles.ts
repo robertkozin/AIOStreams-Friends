@@ -6,7 +6,6 @@ import {
   externalSubtitleFor,
   readBodyCapped,
   subtitleExtensionOf,
-  subtitlePlaylist,
   type SubtitleFormat,
 } from '@aiostreams/core';
 import { jfOptional, param } from './context.js';
@@ -96,38 +95,6 @@ async function subtitleHandler(req: Request, res: Response) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.send(converted.body);
 }
-
-/**
- * One external subtitle as an HLS media playlist of a single WebVTT segment,
- * for a master that lists the version's external subtitles.
- */
-async function subtitlePlaylistHandler(req: Request, res: Response) {
-  const msid = param(req, 'mediaSourceId').replace(/-/g, '').toLowerCase();
-  const loc = await locate(req, param(req, 'itemId'), {
-    hintMsid: msid,
-    bySession: true,
-  });
-  const memo = loc ? await ensureMemo(loc) : null;
-  const source = memo ? pickSource(memo, loc?.requestedMsid) : undefined;
-  if (!source || !externalSubtitleFor(source, Number(param(req, 'index')))) {
-    res.status(404).end();
-    return;
-  }
-  const query = req.originalUrl.split('?')[1];
-  // The file's own length where probed; the title's is rounded, or missing.
-  const runtimeS =
-    (source.durationMs ?? memo?.runtimeMs ?? 0) / 1000 || 4 * 3600;
-  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.send(
-    subtitlePlaylist(`0/Stream.vtt${query ? `?${query}` : ''}`, runtimeS)
-  );
-}
-
-router.get(
-  '/Videos/:itemId/:mediaSourceId/Subtitles/:index/subtitles.m3u8',
-  jfOptional(subtitlePlaylistHandler)
-);
 
 router.get(
   [

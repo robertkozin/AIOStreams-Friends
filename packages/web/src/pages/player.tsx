@@ -17,7 +17,7 @@ import { lastVersions, playableSources } from '../lib/playback/play';
 import { chosenPlayer } from '../lib/playback/player-choice';
 import {
   directUrl,
-  hlsFor,
+  hlsUrl,
   requiredHeaders,
   useYouTubeStream,
 } from '../lib/playback/stream';
@@ -26,7 +26,7 @@ import { currentHost } from '../lib/hosts';
 import { useFeature } from '../lib/server-info';
 import { usePlayerFullscreen } from '../lib/playback/fullscreen';
 import { usePlayer } from '../lib/playback/use-player';
-import { videoEngine } from '../lib/playback/video';
+import { hlsEngine } from '../lib/playback/hls';
 import { useNowPlaying } from '../lib/playback/now-playing';
 import {
   useShowPicks,
@@ -561,23 +561,19 @@ function Player({
     },
     [local]
   );
-  const direct = directUrl(client, item.Id!, source);
-  const url =
-    local?.local?.video ??
-    youTube ??
-    hlsFor(client, source, { hostPlayer: !!hostPlayer }) ??
-    direct;
-  const own = usePlayer(hostPlayer ?? videoEngine(video), {
+  const fallbackEngine = hlsEngine(video);
+  const own = usePlayer(hostPlayer ?? fallbackEngine, {
     client,
     item,
-    url,
-    // A version's headers are for its own address, not HLS or a download.
-    headers: url === direct ? requiredHeaders(source) : undefined,
-    // Its HLS can fail over to a release with none, or to an error video.
-    fallbackUrl:
-      url !== direct && !local?.local && !youTube && !requiredHeaders(source)
-        ? direct
-        : undefined,
+    url: local?.local
+      ? local.local.video
+      : (youTube ?? directUrl(client, item.Id!, source)),
+    // The server's remux of the version, which the engine may play instead.
+    hlsUrl:
+      local?.local || youTube
+        ? undefined
+        : (hlsUrl(client, source) ?? undefined),
+    headers: local?.local ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,

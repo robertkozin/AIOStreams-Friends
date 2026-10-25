@@ -35,20 +35,6 @@ export function directUrl(
 }
 
 /**
- * The one place a version is given HLS rather than its file: the server's
- * HLS remux, which every browser and TV plays, when the server offers one.
- * Players the app draws itself (mpv, ExoPlayer, AVPlay) open the file.
- */
-export function hlsFor(
-  client: JellyfinClient,
-  source: SourceInfo,
-  opts: { hostPlayer: boolean }
-): string | null {
-  if (opts.hostPlayer) return null;
-  return hlsUrl(client, source);
-}
-
-/**
  * The version's HLS remux link, when the server offers one. `external` lists
  * its external subtitles in the playlist too, for another player.
  */

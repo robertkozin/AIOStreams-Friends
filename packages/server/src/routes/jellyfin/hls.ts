@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import {
   buildMediaStreams,
   type ExtraSubtitle,
@@ -7,6 +8,7 @@ import {
   type MediaSourceRecord,
 } from '@aiostreams/core';
 import { playlistName } from '../api/hls.js';
+import { bodyField, qs } from './context.js';
 
 interface ProfileEntry {
   Type?: string;
@@ -55,12 +57,12 @@ export function hlsAudioPlace(
 export function offerHls(
   source: JellyfinMediaSource,
   record: MediaSourceRecord,
+  req: Request,
   opts: {
     itemId: string;
     playSessionId: string;
     token?: string;
     profile?: DeviceProfile;
-    audioStreamIndex?: number;
   }
 ): void {
   if (record.live || record.notice) return;
@@ -71,8 +73,11 @@ export function offerHls(
   });
   // Rows read off the name, not the file, say nothing of its tracks; the
   // playlist then starts with the file's own default.
+  const asked = Number(
+    qs(req, 'AudioStreamIndex') ?? bodyField(req, 'AudioStreamIndex')
+  );
   const audio =
-    opts.audioStreamIndex ??
+    (Number.isInteger(asked) && asked >= 0 ? asked : undefined) ??
     (record.parsedFile?.audioTracks?.length
       ? (source.DefaultAudioStreamIndex as number | undefined)
       : undefined);
