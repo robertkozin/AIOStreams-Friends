@@ -92,6 +92,7 @@ import {
   ANDROID_PLAYER_CLIENT,
   type JellyfinRequestContext,
 } from './context.js';
+import { offerHls, onlyFields } from './hls.js';
 import {
   getMeta,
   maxVersionsFor,
@@ -963,8 +964,8 @@ export function mediaSourcesFrom(
         ...ordered.slice(idx + 1),
       ];
   }
-  return ordered.map((record, i) =>
-    buildMediaSource(record, {
+  return ordered.map((record, i) => {
+    const source = buildMediaSource(record, {
       id: i === 0 ? opts.firstId : record.msid,
       subtitleFormat: format,
       subtitleUrl: subtitleUrlFor(memo.itemId, record.msid),
@@ -977,9 +978,15 @@ export function mediaSourcesFrom(
       noticePath: nothingToPlayPath(req, ctx),
       tracks: opts.tracks,
       originalLanguage: memo.titleMetadata?.originalLanguage,
-      fields: opts.fields,
-    })
-  );
+    });
+    offerHls(source, record, req, {
+      itemId: memo.itemId,
+      playSessionId: memo.psid,
+      token,
+      profile: opts.profile,
+    });
+    return onlyFields(source, opts.fields);
+  });
 }
 
 /** Lets the "Load versions" id, a hash, lead back to its item. */
