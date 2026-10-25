@@ -7,6 +7,7 @@ import {
 import { mapDebridErrorToStaticFile } from '../../utils/static-errors.js';
 import { serveRangeStream } from '../../utils/range-stream.js';
 import { corsMiddleware } from '../../middlewares/cors.js';
+import { hlsMasterUrl } from './hls.js';
 
 const logger = createLogger('server:usenet');
 const router: Router = Router();
@@ -55,5 +56,14 @@ router.get(
     }
   }
 );
+
+/**
+ * The same stream as HLS, for players that cannot open the file itself. The
+ * playlist lives under the HLS route, whose relative paths need it there.
+ */
+router.get('/hls/:token/master.m3u8', (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.redirect(302, hlsMasterUrl(String(req.params.token)));
+});
 
 export default router;

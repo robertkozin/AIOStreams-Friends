@@ -281,7 +281,19 @@ const jellyfinImageRateLimiter = lazyLimiter(
   'jellyfin-image'
 );
 
+/**
+ * HLS playlists and segments, per IP. A viewer asks about 20 times a minute
+ * once playing (a video and an audio segment each 6s) and around 30 at once
+ * on start or a seek; this leaves room for a household behind one address
+ * while stopping one token from rendering a whole film at once.
+ */
+const hlsRateLimiter = lazyLimiter(
+  () => ({ window: 60, maxRequests: 600 }),
+  'hls'
+);
+
 export {
+  hlsRateLimiter,
   jellyfinLoginRateLimiter,
   jellyfinApiRateLimiter,
   jellyfinImageRateLimiter,

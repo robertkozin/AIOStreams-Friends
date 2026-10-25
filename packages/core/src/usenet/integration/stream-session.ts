@@ -4,6 +4,7 @@ import { createLogger } from '../../logging/logger.js';
 import { DebridError } from '../../debrid/base.js';
 import {
   ArticleNotFoundError,
+  CommandPriority,
   NotStreamableError,
   definitiveLossKind,
   deserializeArchiveLayout,
@@ -46,6 +47,7 @@ import { appConfig } from '../../utils/index.js';
 import {
   streamRegistry,
   usenetTargetKey,
+  type StreamHandle,
 } from '../../stream-sessions/index.js';
 import { usenetEngineRegistry, getUsenetEngineConfig } from './engine.js';
 import { fetchNzb, parseNzbCached, canonicaliseNzbHash } from './library.js';
@@ -123,6 +125,26 @@ function streamSessionKey(token: UsenetStreamToken): string {
 }
 
 const streamSessions = new Map<string, UsenetStreamSession>();
+/** Told when the damage policy fails a target, so data read from it can go. */
+const failedListeners = new Map<string, Set<() => void>>();
+
+/**
+ * Calls `listener` if the damage policy fails this target: data already read
+ * from it may be bad. Returns the unsubscribe.
+ */
+export function onUsenetStreamFailed(
+  token: UsenetStreamToken,
+  listener: () => void
+): () => void {
+  const key = streamSessionKey(token);
+  let set = failedListeners.get(key);
+  if (!set) failedListeners.set(key, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (!set.size) failedListeners.delete(key);
+  };
+}
 /** Single-flight in-flight opens so concurrent first requests open once. */
 const openingSessions = new Map<string, Promise<UsenetStreamSession>>();
 /** Idle TTL for a warm session; comfortably below the 5-min engine idle evict. */
@@ -384,6 +406,7 @@ function holeHooksFor(
     // Drop the warm session so a player retry re-opens fresh and sees the
     // failed entry.
     streamSessions.delete(sessionKey);
+    for (const listener of failedListeners.get(sessionKey) ?? []) listener();
     return 'fail';
   };
 
@@ -701,6 +724,25 @@ export interface OpenUsenetStreamOptions {
   clientIp?: string;
   /** Opened through the share tree (FUSE/NFS/WebDAV): no connection caps. */
   share?: boolean;
+  /** Low for a read no player is waiting on, such as a remux rendering ahead. */
+  priority?: CommandPriority;
+  /**
+   * The HLS viewer this read serves. It was admitted already and counts the
+   * bytes it sends, so the read neither opens a stream nor counts its own.
+   */
+  viewer?: StreamHandle;
+}
+
+/** A read inside a viewer's stream: its details reach it, its bytes don't. */
+function joinedRead(viewer: StreamHandle): StreamHandle {
+  return {
+    sessionId: viewer.sessionId,
+    addBytes: () => {},
+    setInfo: (info) => viewer.setInfo({ size: info.size }),
+    attach: () => {},
+    onKill: () => {},
+    close: () => {},
+  };
 }
 
 export async function openNativeUsenetStream(
@@ -758,19 +800,22 @@ export async function openUsenetStream(
   }
 
   // Before the NZB is fetched and parsed, so a refused stream costs nothing.
-  const admitted = streamRegistry.open({
-    transport: 'usenet',
-    username: decoded.owner ?? '',
-    share: opts.share,
-    clientIp: opts.clientIp,
-    targetKey: usenetTargetKey(
-      decoded.hash,
-      decoded.fileIndex,
-      decoded.innerPath
-    ),
-    filename: decoded.filename,
-    start: opts.start,
-  });
+  // A viewer's read was admitted with the viewer, which counts what it sends.
+  const admitted = opts.viewer
+    ? { ok: true as const, handle: joinedRead(opts.viewer) }
+    : streamRegistry.open({
+        transport: 'usenet',
+        username: decoded.owner ?? '',
+        share: opts.share,
+        clientIp: opts.clientIp,
+        targetKey: usenetTargetKey(
+          decoded.hash,
+          decoded.fileIndex,
+          decoded.innerPath
+        ),
+        filename: decoded.filename,
+        start: opts.start,
+      });
   if (!admitted.ok) {
     logger.info(
       {
@@ -821,7 +866,10 @@ export async function openUsenetStream(
   // A suffix range's position is only known now that the size is.
   handle.setInfo({ size, filename, start });
 
-  let stream = session.stream.createReadStream({ start, end }, opts.signal);
+  let stream = session.stream.createReadStream(
+    { start, end, priority: opts.priority },
+    opts.signal
+  );
   if (session.matroska && appConfig.usenet.matroskaHoleFill) {
     stream = wrapMatroskaHoleFill(stream, {
       startOffset: start,
