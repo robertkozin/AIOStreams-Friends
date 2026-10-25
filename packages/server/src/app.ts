@@ -22,6 +22,7 @@ import {
   mediaInfoApi,
   communityApi,
   reportsApi,
+  hlsApi,
 } from './routes/api/index.js';
 import {
   configure,
@@ -155,6 +156,7 @@ apiRouter.use('/reports', appReportsRateLimiter, reportsApi);
 apiRouter.use('/auth', authApi);
 apiRouter.use('/dashboard', dashboardApi);
 apiRouter.use('/usenet', usenetApi);
+apiRouter.use('/hls', hlsApi);
 apiRouter.use('/jellyfin', jellyfinApi);
 apiRouter.use('/sabnzbd', sabnzbdRouter);
 apiRouter.use('/newznab', createNabRouter('newznab'));

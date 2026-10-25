@@ -23,6 +23,7 @@ import syncPlayRouter from './syncplay.js';
 import remoteRouter from './remote.js';
 import libraryRouter from './library.js';
 import playbackRouter from './playback.js';
+import hlsMasterRouter from './hls-master.js';
 import subtitlesRouter from './subtitles.js';
 import imagesRouter from './images.js';
 import playstateRouter from './playstate.js';
@@ -211,6 +212,7 @@ export function createJellyfinRouter(): Router {
   router.use(remoteRouter);
   router.use(usersRouter);
   router.use(quickConnectRouter);
+  router.use(hlsMasterRouter);
   router.use(playbackRouter);
   router.use(subtitlesRouter);
   router.use(imagesRouter);
