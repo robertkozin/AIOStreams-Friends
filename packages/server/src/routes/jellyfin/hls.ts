@@ -1,10 +1,12 @@
 import {
   buildMediaStreams,
+  type ExtraSubtitle,
   isUsenetHlsCandidate,
   type DeviceProfile,
   type JellyfinMediaSource,
   type MediaSourceRecord,
 } from '@aiostreams/core';
+import { playlistName } from '../api/hls.js';
 
 interface ProfileEntry {
   Type?: string;
@@ -48,7 +50,7 @@ export function hlsAudioPlace(
  * Gives a native usenet MKV version the HLS remux as its transcoding URL, and
  * a client whose profile can't direct play MKV is sent to it. Every audio
  * track is in the playlist; the one the client picked (or the version's
- * default) is the one it starts with.
+ * default, where its tracks are known) is the one it starts with.
  */
 export function offerHls(
   source: JellyfinMediaSource,
@@ -67,14 +69,52 @@ export function offerHls(
     MediaSourceId: record.msid,
     PlaySessionId: opts.playSessionId,
   });
+  // Rows read off the name, not the file, say nothing of its tracks; the
+  // playlist then starts with the file's own default.
   const audio =
     opts.audioStreamIndex ??
-    (source.DefaultAudioStreamIndex as number | undefined);
+    (record.parsedFile?.audioTracks?.length
+      ? (source.DefaultAudioStreamIndex as number | undefined)
+      : undefined);
   if (audio !== undefined) query.set('AudioStreamIndex', String(audio));
   if (opts.token) query.set('api_key', opts.token);
   source.SupportsTranscoding = true;
-  source.TranscodingUrl = `/videos/${opts.itemId}/master.m3u8?${query}`;
+  // Named for the file, which players that title a stream by its address show.
+  source.TranscodingUrl = `/videos/${opts.itemId}/${playlistName(record.filename)}?${query}`;
   source.TranscodingSubProtocol = 'hls';
   source.TranscodingContainer = 'mp4';
   if (!directPlaysMkv(opts.profile)) source.SupportsDirectPlay = false;
+}
+
+/**
+ * The version's external subtitles as HLS renditions, each a playlist of its
+ * WebVTT file on the subtitle route, at `base`, the mount's address. The
+ * client's token rides in their query, as for its subtitles anywhere.
+ */
+export function externalHlsSubtitles(
+  record: MediaSourceRecord,
+  opts: {
+    itemId: string;
+    playSessionId: string;
+    token?: string;
+    base: string;
+    subtitleUrl: (index: number, format: string) => string;
+  }
+): ExtraSubtitle[] {
+  return buildMediaStreams(record, {
+    subtitleFormat: () => 'vtt',
+    subtitleUrl: opts.subtitleUrl,
+    subtitleToken: opts.token,
+    playSessionId: opts.playSessionId,
+  })
+    .filter((s) => s.Type === 'Subtitle' && s.IsExternal && s.DeliveryUrl)
+    .map((s) => ({
+      name: String(s.DisplayTitle ?? s.Language ?? 'Subtitle'),
+      language: s.Language ? String(s.Language) : undefined,
+      forced: s.IsForced === true,
+      uri: `${opts.base}${String(s.DeliveryUrl).replace(
+        '/0/Stream.vtt',
+        '/subtitles.m3u8'
+      )}`,
+    }));
 }

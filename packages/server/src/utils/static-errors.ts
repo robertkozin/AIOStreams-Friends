@@ -50,3 +50,14 @@ export function mapDebridErrorToStaticFile(code: string | undefined): string {
       return StaticFiles.INTERNAL_SERVER_ERROR;
   }
 }
+
+/**
+ * The same video as HLS, for a player that asked for HLS. Each is cut beside
+ * its MP4 once, as `static/hls/<name>/`, with
+ * `ffmpeg -i <name>.mp4 -c copy -f hls -hls_time 120 -hls_playlist_type vod
+ * -hls_segment_type fmp4 -hls_fmp4_init_filename init.mp4
+ * -hls_segment_filename 'hls/<name>/%d.m4s' hls/<name>/index.m3u8`.
+ */
+export function staticHlsPath(file: string): string {
+  return `/static/hls/${file.replace(/\.mp4$/, '')}/index.m3u8`;
+}

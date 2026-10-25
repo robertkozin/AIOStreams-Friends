@@ -67,8 +67,10 @@ export class HlsRefusedError extends Error {
 }
 
 /**
- * One player's HLS of one file: a single stream in the registry for as long
- * as it keeps asking, however many reads and cached segments serve it.
+ * One user's HLS of one file: a single stream in the registry for as long as
+ * anyone keeps asking, however many reads and cached segments serve it. Every
+ * player of the file shares its segments, so a party watching together, from
+ * however many places, is one stream, as the reads behind it are.
  */
 interface Viewer {
   key: string;
@@ -93,7 +95,7 @@ function viewerFor(token: UsenetStreamToken, clientIp?: string): Viewer {
     token.fileIndex,
     token.innerPath
   );
-  const key = `${username}|${clientIp ?? ''}|${targetKey}`;
+  const key = JSON.stringify([username, targetKey]);
   let viewer = viewers.get(key);
   if (!viewer) {
     const admitted = streamRegistry.open({

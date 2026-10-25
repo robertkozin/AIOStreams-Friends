@@ -1,5 +1,5 @@
 import { t } from '@lingui/core/macro';
-import Hls, { ErrorTypes, Events } from 'hls.js';
+import Hls, { ErrorDetails, ErrorTypes, Events } from 'hls.js';
 import type React from 'react';
 import { checkSubtitleFile, readSubtitleFile } from '../subtitles/files';
 import { subtitleLine } from '../subtitles/style';
@@ -58,6 +58,9 @@ type WebKitVideo = HTMLVideoElement & {
   webkitPresentationMode?: string;
 };
 
+/** Which player an HLS address opens in: the browser's own where it can, or one of the two. */
+type Choice = 'auto' | 'native' | 'hlsjs';
+
 const pipSupported = () =>
   document.pictureInPictureEnabled ||
   'webkitSupportsPresentationMode' in HTMLVideoElement.prototype;
@@ -76,29 +79,93 @@ const playsHlsNatively = (el: HTMLVideoElement) =>
  */
 const nativeSwitchesTracks = () => 'audioTracks' in HTMLMediaElement.prototype;
 
-/** The audio track the server makes an HLS address's default, by Jellyfin index. */
-const AUDIO_INDEX = 'AudioStreamIndex';
-
-const audioIndexOf = (url: string) => {
-  const index = new URL(url, location.href).searchParams.get(AUDIO_INDEX);
-  return index === null ? undefined : Number(index);
-};
-
-const withAudioIndex = (url: string, index: number) => {
-  const next = new URL(url, location.href);
-  next.searchParams.set(AUDIO_INDEX, String(index));
-  return next.toString();
-};
-
 const isHls = (url: string) =>
   new URL(url, location.href).pathname.toLowerCase().endsWith('.m3u8');
 
+/** Times a stream that fails is asked for again, which moves past a dead release. */
+const MAX_REREADS = 2;
+
+/** One audio or subtitle rendition of a master playlist. */
+interface Rendition {
+  name: string;
+  lang?: string;
+  default: boolean;
+  forced: boolean;
+}
+
+/**
+ * A master playlist as read, at the address its redirects led to: the
+ * server's remux of one release, or an error video.
+ */
+interface Playlist {
+  /** The address it was asked for, before any redirect. */
+  asked: string;
+  url: string;
+  audio: Rendition[];
+  subtitles: Rendition[];
+}
+
+function attribute(line: string, key: string): string | undefined {
+  const match = new RegExp(`(?:[:,])${key}=("([^"]*)"|[^,]*)`).exec(line);
+  return match ? (match[2] ?? match[1]) : undefined;
+}
+
+function readPlaylist(url: string, text: string): Playlist {
+  const audio: Rendition[] = [];
+  const subtitles: Rendition[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith('#EXT-X-MEDIA:')) continue;
+    const type = attribute(line, 'TYPE');
+    const list =
+      type === 'AUDIO' ? audio : type === 'SUBTITLES' ? subtitles : null;
+    list?.push({
+      name: attribute(line, 'NAME') ?? '',
+      lang: attribute(line, 'LANGUAGE'),
+      default: attribute(line, 'DEFAULT') === 'YES',
+      forced: attribute(line, 'FORCED') === 'YES',
+    });
+  }
+  return { asked: url, url, audio, subtitles };
+}
+
+/**
+ * Reads an HLS address before a player opens it. Null when it leads to no
+ * playlist, as for a version that failed over to one with no HLS stream. One
+ * this page may not read, such as another site's, is left to the player.
+ */
+async function fetchPlaylist(
+  url: string,
+  signal: AbortSignal
+): Promise<Playlist | null> {
+  let res: Response;
+  try {
+    res = await fetch(url, { signal });
+  } catch (err) {
+    if (signal.aborted) throw err;
+    return { asked: url, url, audio: [], subtitles: [] };
+  }
+  if (!res.ok) return null;
+  const text = await res.text();
+  return text.startsWith('#EXTM3U')
+    ? { ...readPlaylist(res.url || url, text), asked: url }
+    : null;
+}
+
+/** The server's remux with its `audio`th rendition as the default. */
+const withAudio = (url: string, audio: number) => {
+  const next = new URL(url, location.href);
+  next.searchParams.set('audio', String(audio));
+  return next.toString();
+};
+
 /**
  * The page's own `<video>`. The server's subtitles are `<track>`s, and files
- * the user adds are text tracks after them. An HLS address plays in the
- * browser's own HLS where it has one, and in hls.js where it doesn't, where
- * it fails, or once a track is picked that it can't switch to (Chrome and
- * Firefox switch neither the playlist's audio nor, maybe, its subtitles).
+ * the user adds are text tracks after them. An HLS address is read first,
+ * for its tracks and to find it leads somewhere, then plays in the browser's
+ * own HLS where it has one, and in hls.js where it doesn't, where it fails,
+ * or while a subtitle is picked that it can't show (Chrome and Firefox show
+ * none of the playlist's). A stream that fails is asked for again, which
+ * moves past a release that died, then gives way to the version's file.
  */
 export function videoEngine(
   video: React.RefObject<HTMLVideoElement | null>
@@ -107,12 +174,23 @@ export function videoEngine(
     let file: EngineFile | null = null;
     let hls: Hls | null = null;
     let mode: 'file' | 'native' | 'hlsjs' = 'file';
+    // The HLS address this file was asked for, before any redirect.
+    let origin: string | null = null;
+    let playlist: Playlist | null = null;
+    let rereads = 0;
+    // The language of the audio playing when the stream was asked for
+    // again, kept where the new playlist has it.
+    let keepAudio: string | undefined;
+    // Paused by the viewer, as a video that failed also reads paused.
+    let held = false;
     // Picked in native HLS, for hls.js to apply once it lists its tracks.
     let pendingSubtitle: number | undefined;
     let subtitleId: string | null = null;
     // Whether this file has played; until then its video is paused only
     // because autoplay hasn't begun.
     let begun = false;
+    // Whether this file's tracks were announced; a reopen keeps the picks.
+    let announced = false;
     // For the statistics: why hls.js plays, how often the stream reopened,
     // and the last picture segment hls.js fetched.
     let hlsWhy: Extract<VideoMode, { kind: 'hlsjs' }>['why'] = 'no native HLS';
@@ -130,6 +208,8 @@ export function videoEngine(
     const shifted = new WeakMap<TextTrackCue, number>();
     // Browsers disagree on where a cue the file leaves unplaced goes.
     const placed = new WeakSet<VTTCue>();
+    // hls.js's subtitle tracks, which stay on the video once it's gone.
+    const stale = new WeakSet<TextTrack>();
 
     // The server's `<track>`s, the user's files, and hls.js's own tracks.
     const textTracks = () =>
@@ -168,31 +248,16 @@ export function videoEngine(
         ...files.map((f) => f.track),
       ]);
       return Array.from(el.textTracks).filter(
-        (t) => !ours.has(t) && (t.kind === 'subtitles' || t.kind === 'captions')
+        (t) =>
+          !ours.has(t) &&
+          !stale.has(t) &&
+          (t.kind === 'subtitles' || t.kind === 'captions')
       );
     };
-    // The version's tracks in the file's order, which is the playlist's: what
-    // native HLS that can't list them plays, and hls.js would.
-    const sourceAudio = () =>
-      (file?.source.MediaStreams ?? []).filter((s) => s.Type === 'Audio');
-    const sourceSubtitles = () =>
-      (file?.source.MediaStreams ?? []).filter(
-        (s) =>
-          s.Type === 'Subtitle' &&
-          s.DeliveryMethod === 'Embed' &&
-          s.IsTextSubtitleStream
-      );
-    // The playlist's default: the one its address asks the server for, else
-    // the version's.
-    const nativeAudio = () => {
-      const index =
-        (file && audioIndexOf(file.url)) ??
-        file?.source.DefaultAudioStreamIndex;
-      return Math.max(
-        0,
-        sourceAudio().findIndex((s) => s.Index === index)
-      );
-    };
+    // The playlist's default audio, which native HLS that can't switch
+    // tracks plays.
+    const nativeAudio = () =>
+      Math.max(0, playlist?.audio.findIndex((r) => r.default) ?? 0);
     const listTracks = () => {
       const audio = video.current && audioTracksOf(video.current);
       const audioTracks: AudioTrack[] = hls
@@ -204,10 +269,10 @@ export function videoEngine(
         : audio?.length
           ? listed(audio)
           : mode === 'native' && !nativeSwitchesTracks()
-            ? sourceAudio().map((s, i) => ({
+            ? (playlist?.audio ?? []).map((r, i) => ({
                 enabled: i === nativeAudio(),
-                label: s.DisplayTitle ?? '',
-                language: s.Language ?? '',
+                label: r.name,
+                language: r.lang ?? '',
               }))
             : [];
       const playlistSubtitles = playlistTextTracks();
@@ -243,18 +308,14 @@ export function videoEngine(
         ...(mode === 'native' &&
         !nativeSwitchesTracks() &&
         !playlistSubtitles.length
-          ? sourceSubtitles().map((s, i) => ({
+          ? (playlist?.subtitles ?? []).map((r, i) => ({
               id: `${HLS_SUBTITLE}${i}`,
               type: 'subtitle' as const,
-              label: ownTrackLabel(
-                s.DisplayTitle ?? undefined,
-                s.Language ?? undefined,
-                i + 1
-              ),
-              lang: s.Language ?? undefined,
-              title: s.Title ?? undefined,
-              forced: s.IsForced ?? undefined,
-              default: s.IsDefault ?? undefined,
+              label: ownTrackLabel(r.name, r.lang, i + 1),
+              lang: r.lang,
+              title: r.name,
+              forced: r.forced,
+              default: r.default,
               file: true,
             }))
           : []),
@@ -276,6 +337,11 @@ export function videoEngine(
         if (toHlsJs('subtitle')) return set({ subtitle: id });
         pendingSubtitle = undefined;
       }
+      // hls.js is no longer needed for this subtitle, so the browser's own
+      // HLS, lighter and the one casting takes, plays again with its audio.
+      if (hls && hlsWhy === 'subtitle' && !id?.startsWith(HLS_SUBTITLE)) {
+        if (toNative()) return set({ subtitle: id });
+      }
       elements.forEach((e, i) => {
         e.track.mode = file?.subtitles[i]?.id === id ? 'showing' : 'disabled';
       });
@@ -295,23 +361,78 @@ export function videoEngine(
       set({ subtitle: id });
     };
     const set = (state: EngineState) => emit({ type: 'state', state });
+    const cannotPlay = () =>
+      emit({
+        type: 'failed',
+        error: t({
+          comment: 'Follows "Playback failed:"',
+          message:
+            'this browser cannot play this version. Nothing is converted on the server, so try another version, an external player or the desktop app.',
+        }),
+      });
     const attachFile = (el: HTMLVideoElement, next: EngineFile) => {
       mode = 'file';
       el.src = next.url;
       return () => {};
     };
+    /**
+     * Reads the address, then plays where it led: in the browser's own HLS
+     * unless asked for hls.js or there is none.
+     */
     const attachHls = (
       el: HTMLVideoElement,
       next: EngineFile,
-      forceHlsJs: boolean
+      choice: Choice
     ) => {
-      if ((!forceHlsJs && playsHlsNatively(el)) || !Hls.isSupported()) {
-        mode = 'native';
-        el.src = next.url;
-        return () => {};
-      }
-      mode = 'hlsjs';
-      if (!forceHlsJs) hlsWhy = 'no native HLS';
+      const native =
+        (choice !== 'hlsjs' && playsHlsNatively(el)) || !Hls.isSupported();
+      mode = native ? 'native' : 'hlsjs';
+      if (!native && choice === 'auto') hlsWhy = 'no native HLS';
+      const abort = new AbortController();
+      let stop = () => {};
+      const read =
+        playlist?.url === next.url || playlist?.asked === next.url
+          ? Promise.resolve(playlist)
+          : fetchPlaylist(next.url, abort.signal);
+      read.then(
+        (found) => {
+          if (abort.signal.aborted) return;
+          if (!found) return unplayable();
+          const want = keepAudio;
+          keepAudio = undefined;
+          const at = found.audio.findIndex((r) => !!want && r.lang === want);
+          playlist =
+            at < 0 || found.audio[at].default
+              ? found
+              : {
+                  ...found,
+                  url: withAudio(found.url, at),
+                  audio: found.audio.map((r, i) => ({
+                    ...r,
+                    default: i === at,
+                  })),
+                };
+          listTracks();
+          if (native) {
+            el.src = playlist.url;
+            return;
+          }
+          stop = attachHlsJs(el, next, playlist.url);
+        },
+        () => {
+          if (!abort.signal.aborted) unplayable();
+        }
+      );
+      return () => {
+        abort.abort();
+        stop();
+      };
+    };
+    const attachHlsJs = (
+      el: HTMLVideoElement,
+      next: EngineFile,
+      url: string
+    ) => {
       lastFragment = undefined;
       const player = new Hls({
         startPosition: next.startMs / 1000,
@@ -323,11 +444,16 @@ export function videoEngine(
       player.on(Events.AUDIO_TRACKS_UPDATED, listTracks);
       player.on(Events.AUDIO_TRACK_SWITCHED, listTracks);
       player.on(Events.SUBTITLE_TRACKS_UPDATED, () => {
-        if (pendingSubtitle !== undefined) {
-          player.subtitleDisplay = true;
-          player.subtitleTrack = pendingSubtitle;
-        }
+        const pending = pendingSubtitle;
         pendingSubtitle = undefined;
+        // hls.js picks its own track right after telling of them, so the
+        // pick waits for that.
+        if (pending !== undefined)
+          queueMicrotask(() => {
+            if (hls !== player) return;
+            player.subtitleDisplay = true;
+            player.subtitleTrack = pending;
+          });
         listTracks();
       });
       player.on(Events.SUBTITLE_FRAG_PROCESSED, () => {
@@ -346,19 +472,35 @@ export function videoEngine(
       });
       player.on(Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
-        if (data.type === ErrorTypes.NETWORK_ERROR) return player.startLoad();
+        // Nothing to recover or ask for again: the browser can't decode it.
+        if (
+          data.details === ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR ||
+          data.details === ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR
+        )
+          return cannotPlay();
         if (data.type === ErrorTypes.MEDIA_ERROR && !recovered) {
           recovered = true;
           return player.recoverMediaError();
         }
+        // hls.js has retried by now: the release may have died, which the
+        // server knows on the next ask.
+        if (data.type === ErrorTypes.NETWORK_ERROR && reread()) return;
         // eslint-disable-next-line lingui/no-unlocalized-strings -- hls.js's own error name
         emit({ type: 'failed', error: `HLS: ${data.details}` });
       });
-      player.loadSource(next.url);
+      player.loadSource(url);
       player.attachMedia(el);
       return () => {
         player.destroy();
         if (hls === player) hls = null;
+        for (const track of Array.from(el.textTracks)) {
+          const ours =
+            elements.some((e) => e.track === track) ||
+            files.some((f) => f.track === track);
+          if (ours) continue;
+          stale.add(track);
+          track.mode = 'disabled';
+        }
       };
     };
     const removeElements = () => {
@@ -366,7 +508,7 @@ export function videoEngine(
       elements = [];
     };
 
-    const open = (next: EngineFile, forceHlsJs: boolean) => {
+    const open = (next: EngineFile, choice: Choice) => {
       const el = video.current;
       if (!el) return;
       detach();
@@ -396,7 +538,8 @@ export function videoEngine(
           if (next.startMs) el.currentTime = next.startMs / 1000;
           set({ durationMs: el.duration * 1000 || 0 });
           listTracks();
-          emit({ type: 'loaded' });
+          if (!announced) emit({ type: 'loaded' });
+          announced = true;
         },
         durationchange: () => set({ durationMs: el.duration * 1000 || 0 }),
         playing: () => {
@@ -427,14 +570,8 @@ export function videoEngine(
         ended: () => emit({ type: 'ended' }),
         error: () => {
           if (mode === 'native' && toHlsJs('native failed')) return;
-          emit({
-            type: 'failed',
-            error: t({
-              comment: 'Follows "Playback failed:"',
-              message:
-                'this browser cannot play this version. Nothing is converted on the server, so try another version, an external player or the desktop app.',
-            }),
-          });
+          if (mode !== 'file' && reread()) return;
+          cannotPlay();
         },
       };
       for (const [event, handler] of Object.entries(handlers))
@@ -455,6 +592,21 @@ export function videoEngine(
         listTracks();
       };
       el.textTracks.addEventListener('addtrack', onTextTrack);
+      // Chrome shows a track in its own language once hls.js adds its own,
+      // beside the subtitle picked; only the pick shows.
+      const onTextTracksChange = () => {
+        elements.forEach((e, i) => {
+          if (
+            e.track.mode === 'showing' &&
+            file?.subtitles[i]?.id !== subtitleId
+          )
+            e.track.mode = 'disabled';
+        });
+        for (const f of files)
+          if (f.track.mode === 'showing' && f.id !== subtitleId)
+            f.track.mode = 'disabled';
+      };
+      el.textTracks.addEventListener('change', onTextTracksChange);
       const onFullscreen = () => set({ fullscreen: isFullscreen() });
       document.addEventListener('fullscreenchange', onFullscreen);
       detach = () => {
@@ -464,6 +616,7 @@ export function videoEngine(
           audio?.removeEventListener(event, listTracks);
         for (const e of elements) e.removeEventListener('load', onTrackLoad);
         el.textTracks.removeEventListener('addtrack', onTextTrack);
+        el.textTracks.removeEventListener('change', onTextTracksChange);
         for (const track of Array.from(el.textTracks))
           track.removeEventListener('cuechange', onTrackLoad);
         document.removeEventListener('fullscreenchange', onFullscreen);
@@ -473,44 +626,106 @@ export function videoEngine(
       if (next.paused) set({ paused: true });
       unattach();
       unattach = isHls(next.url)
-        ? attachHls(el, next, forceHlsJs)
+        ? attachHls(el, next, choice)
         : attachFile(el, next);
     };
+    const resumeAt = (el: HTMLVideoElement, from: EngineFile) => ({
+      // Before it has played, as it was asked to open: the track picks
+      // that reopen it land as it loads, before autoplay begins.
+      startMs:
+        begun && el.currentTime > 0 ? el.currentTime * 1000 : from.startMs,
+      paused: begun ? held : from.paused,
+    });
     /**
-     * Reopens native HLS where it is: in hls.js, for a subtitle it can't
-     * show or a stream it failed on, or at another address, for an audio
-     * track it can't switch to.
+     * Reopens HLS where it is: in hls.js, for a subtitle the browser's own
+     * can't show or a stream it failed on; in the browser's own, once
+     * hls.js isn't needed; or at another address, for an audio track it
+     * can't switch to, or for the stream again.
      */
-    const reopen = (
-      changes: Partial<EngineFile>,
-      forceHlsJs: boolean
-    ): boolean => {
+    const reopen = (changes: Partial<EngineFile>, choice: Choice): boolean => {
       const el = video.current;
-      if (!el || !file || mode !== 'native') return false;
-      if (forceHlsJs && !Hls.isSupported()) return false;
+      if (!el || !file || mode === 'file') return false;
+      if (choice === 'hlsjs' && !Hls.isSupported()) return false;
+      if (choice === 'native' && !playsHlsNatively(el)) return false;
       const keep = subtitleId;
       open(
         {
           ...file,
+          // Where the playlist read for this file led, not asked again; a
+          // read still under way is for the address last asked for.
+          url: playlist?.asked === file.url ? playlist.url : file.url,
           ...changes,
-          // Before it has played, as it was asked to open: the track picks
-          // that reopen it land as it loads, before autoplay begins.
-          startMs:
-            begun && el.currentTime > 0 ? el.currentTime * 1000 : file.startMs,
-          paused: begun ? el.paused : file.paused,
+          ...resumeAt(el, file),
         },
-        forceHlsJs
+        choice
       );
       reopens++;
       if (keep && !keep.startsWith(HLS_SUBTITLE)) setSubtitle(keep);
       return true;
     };
     const toHlsJs = (why: typeof hlsWhy) => {
+      if (mode !== 'native') return false;
       const before = hlsWhy;
       hlsWhy = why;
-      if (reopen({}, true)) return true;
+      if (reopen({}, 'hlsjs')) return true;
       hlsWhy = before;
       return false;
+    };
+    const toNative = () => {
+      const audio = hls?.audioTrack ?? -1;
+      return (
+        !!playlist &&
+        reopen(
+          audio >= 0 ? { url: withAudio(playlist.url, audio) } : {},
+          'native'
+        )
+      );
+    };
+    /**
+     * Asks for the stream's HLS address again, where a release that failed
+     * mid-stream is passed over for the next one in the failover chain.
+     */
+    const playingAudio = (): string | undefined => {
+      if (hls) return hls.audioTracks[hls.audioTrack]?.lang;
+      const audio = video.current && audioTracksOf(video.current);
+      if (audio?.length) return listed(audio).find((t) => t.enabled)?.language;
+      return playlist?.audio[nativeAudio()]?.lang;
+    };
+    const reread = () => {
+      if (!origin || rereads >= MAX_REREADS) return unplayable();
+      rereads++;
+      keepAudio = playingAudio();
+      playlist = null;
+      return reopen(
+        { url: origin },
+        mode === 'hlsjs' && hlsWhy !== 'no native HLS' ? 'hlsjs' : 'auto'
+      );
+    };
+    /**
+     * HLS that leads nowhere playable: the version's own file, which the
+     * failover chain also stands behind, or its error video.
+     */
+    const unplayable = (): boolean => {
+      const el = video.current;
+      if (!el || !file?.fallbackUrl) {
+        emit({
+          type: 'failed',
+          // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's HLS is English only, to keep the locale files untouched
+          error: 'the server could not open this version.',
+        });
+        return true;
+      }
+      open(
+        {
+          ...file,
+          url: file.fallbackUrl,
+          fallbackUrl: undefined,
+          ...resumeAt(el, file),
+        },
+        'auto'
+      );
+      reopens++;
+      return true;
     };
     const statsText = () => {
       const el = video.current;
@@ -522,10 +737,7 @@ export function videoEngine(
         hls,
         reopens,
         lastFragment,
-        nativeAudioIndex:
-          audioIndexOf(file.url) ??
-          file.source.DefaultAudioStreamIndex ??
-          undefined,
+        nativeAudio: playlist?.audio[nativeAudio()]?.name,
       });
     };
 
@@ -534,8 +746,14 @@ export function videoEngine(
         pendingSubtitle = undefined;
         subtitleId = null;
         begun = false;
+        announced = false;
+        held = !!next.paused;
         reopens = 0;
-        open(next, false);
+        rereads = 0;
+        hlsWhy = 'no native HLS';
+        origin = isHls(next.url) ? next.url : null;
+        playlist = null;
+        open(next, 'auto');
       },
       // Browsers keep a closed player in their media controls until its video drops the stream.
       close() {
@@ -553,6 +771,7 @@ export function videoEngine(
         el.load();
       },
       setPaused(paused) {
+        held = paused;
         const el = video.current;
         if (!el) return;
         if (paused) el.pause();
@@ -587,12 +806,11 @@ export function videoEngine(
         if (
           mode !== 'native' ||
           nativeSwitchesTracks() ||
+          !playlist?.audio[Number(id)] ||
           Number(id) === nativeAudio()
         )
           return;
-        const index = sourceAudio()[Number(id)]?.Index;
-        if (index === undefined || index === null || !file) return;
-        if (reopen({ url: withAudioIndex(file.url, index) }, false))
+        if (reopen({ url: withAudio(playlist.url, Number(id)) }, 'native'))
           set({ audio: id });
       },
       setSubtitle,

@@ -192,6 +192,7 @@ export function usePlayer(
 
   const fileFor = (from: number): EngineFile => ({
     url,
+    fallbackUrl: opts.fallbackUrl,
     headers: opts.headers,
     startMs: from,
     paused: opts.startPaused,

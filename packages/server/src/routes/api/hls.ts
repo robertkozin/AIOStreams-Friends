@@ -22,15 +22,39 @@ const router: Router = Router();
 router.use(corsMiddleware);
 router.use(hlsRateLimiter);
 
+/** Where a usenet stream token's HLS lives; its paths are relative to it. */
+export function hlsBaseUrl(token: string): string {
+  return `${appConfig.bootstrap.baseUrl}/api/v${constants.API_VERSION}/hls/${token}/`;
+}
+
 /**
- * Where a usenet stream token's HLS starts; every other path is relative to
- * it. `audio` makes that audio track, by its place among the file's audio
- * tracks, the one players start with.
+ * The name a playlist is served under: the file's, so players that title a
+ * stream by its address, as VLC does, show it.
  */
-export function hlsMasterUrl(token: string, audio?: number): string {
-  const url = `${appConfig.bootstrap.baseUrl}/api/v${constants.API_VERSION}/hls/${token}/master.m3u8`;
+export function playlistName(filename: string | undefined): string {
+  const name = (filename ?? '').replace(/\.[a-z0-9]{2,4}$/i, '').trim();
+  return `${encodeURIComponent(name || 'master')}.m3u8`;
+}
+
+/**
+ * Where a usenet stream token's HLS starts, under `name` or `master.m3u8`.
+ * `audio` makes that audio track, by its place among the file's audio tracks,
+ * the one players start with.
+ */
+export function hlsMasterUrl(
+  token: string,
+  audio?: number,
+  name = 'master.m3u8'
+): string {
+  const url = `${hlsBaseUrl(token)}${name}`;
   return audio === undefined ? url : `${url}?audio=${audio}`;
 }
+
+/** Any playlist named beside the master is the master, under the file's name. */
+const asMaster = (parts: string[]) =>
+  parts.length === 1 && parts[0].toLowerCase().endsWith('.m3u8')
+    ? ['master.m3u8']
+    : parts;
 
 function statusOf(err: unknown): number | undefined {
   if (err instanceof HlsRefusedError) return err.status;
@@ -53,7 +77,9 @@ router.get('/:token/{*parts}', async (req: Request, res: Response) => {
     if (!res.writableFinished)
       abort.abort(new HlsAbandonedError('the player went away'));
   });
-  const parts = (req.params.parts as unknown as string[] | undefined) ?? [];
+  const parts = asMaster(
+    (req.params.parts as unknown as string[] | undefined) ?? []
+  );
   const audio = Number(req.query.audio);
   try {
     const served = await serveHls(String(req.params.token), parts, {

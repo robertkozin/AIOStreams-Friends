@@ -569,6 +569,11 @@ function Player({
     url,
     // A version's headers are for its own address, not HLS or a download.
     headers: url === direct ? requiredHeaders(source) : undefined,
+    // Its HLS can fail over to a release with none, or to an error video.
+    fallbackUrl:
+      url !== direct && !local?.local && !youTube && !requiredHeaders(source)
+        ? direct
+        : undefined,
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,
