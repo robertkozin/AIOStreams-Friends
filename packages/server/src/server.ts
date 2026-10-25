@@ -62,6 +62,7 @@ import {
   pruneMediaInfoProbes,
   recoverStreamSessions,
   streamRegistry,
+  closeHls,
 } from '@aiostreams/core';
 
 const logger = createLogger('server');
@@ -485,6 +486,7 @@ async function shutdown() {
   await flushWatchState().catch(() => undefined);
   await flushPendingIds().catch(() => undefined);
   await closePartyRelay();
+  await closeHls().catch(() => undefined);
   await sharedBackend()
     .stop()
     .catch(() => undefined);
