@@ -29,6 +29,8 @@ export interface EngineTrack extends Track {
 
 export interface EngineFile {
   url: string;
+  /** The version's own file, for an HLS address that leads nowhere playable. */
+  fallbackUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   /** Opens without playing. */

@@ -24,8 +24,8 @@ export interface VideoStatsInput {
   /** Times the stream was reopened where it was, for a track or a failure. */
   reopens: number;
   lastFragment?: FragmentLoad;
-  /** The audio track native HLS was opened with, by Jellyfin index. */
-  nativeAudioIndex?: number;
+  /** The playlist's default audio, which native HLS was opened with. */
+  nativeAudio?: string;
 }
 
 const READY_STATES = [
@@ -101,10 +101,10 @@ export function videoStatsText(input: VideoStatsInput): string {
       'Subtitle',
       subtitle ? subtitle.name : 'none from the playlist',
     ]);
-  } else if (mode.kind === 'native' && input.nativeAudioIndex !== undefined) {
+  } else if (mode.kind === 'native' && input.nativeAudio !== undefined) {
     lines.push([
       'Audio',
-      `the playlist's default, stream ${input.nativeAudioIndex} (switched by reopening)`,
+      `${input.nativeAudio || '—'}, the playlist's default (switched by reopening)`,
     ]);
   }
 

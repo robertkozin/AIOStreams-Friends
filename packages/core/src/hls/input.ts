@@ -1,8 +1,11 @@
 import { constants } from '../utils/index.js';
 import { parsePlaybackUrl } from '../debrid/utils.js';
-import { decodeStoreAuth, resolvePlaybackTarget } from '../main/failover.js';
+import { decodeStoreAuth } from '../main/failover.js';
 import { unwrapProxyUrl } from '../proxy/token.js';
-import { decodeUsenetStreamUrl } from '../usenet/integration/tokens.js';
+import {
+  decodeUsenetStreamToken,
+  decodeUsenetStreamUrl,
+} from '../usenet/integration/tokens.js';
 
 const STREAM_TOKEN = /\/api\/v1\/usenet\/stream\/([^/?#]+)/;
 
@@ -15,22 +18,27 @@ export function isUsenetHlsCandidate(url: string): boolean {
 }
 
 /**
- * The engine token behind a version's URL, as the stream URL carries it: the
- * URL's own, or a playback link to this server's usenet service, which this
- * resolves (grabbing the NZB) as a player's request to it would.
+ * The engine token of a stream URL of this server's usenet engine, proxied or
+ * not, as a playback link resolves to.
  */
-export async function usenetTokenFor(
-  url: string,
-  clientIp?: string
-): Promise<string | undefined> {
+export function usenetStreamToken(url: string): string | undefined {
   const unwrapped = unwrapProxyUrl(url);
-  const own = (target: string) =>
-    decodeUsenetStreamUrl(target) ? STREAM_TOKEN.exec(target)?.[1] : undefined;
-  const direct = own(unwrapped);
-  if (direct) return direct;
-  const owned = parsePlaybackUrl(unwrapped);
-  if (!owned || decodeStoreAuth(owned)?.id !== constants.AIOSTREAMS_SERVICE)
-    return undefined;
-  const resolved = await resolvePlaybackTarget(owned, { clientIp });
-  return resolved ? own(resolved) : undefined;
+  return decodeUsenetStreamUrl(unwrapped)
+    ? STREAM_TOKEN.exec(unwrapped)?.[1]
+    : undefined;
+}
+
+/** The remuxer reads Matroska, which WebM also is. */
+const REMUXABLE = /\.(mkv|webm)$/i;
+
+/**
+ * The engine token of a stream URL whose file the remuxer can read, as a
+ * release the failover chain moves on to may be another container.
+ */
+export function remuxableUsenetToken(url: string): string | undefined {
+  const token = usenetStreamToken(url);
+  const decoded = token ? decodeUsenetStreamToken(token) : undefined;
+  return decoded && REMUXABLE.test(decoded.innerPath ?? decoded.filename)
+    ? token
+    : undefined;
 }

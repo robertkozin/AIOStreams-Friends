@@ -145,6 +145,8 @@ export interface PlayerOptions {
   item: BaseItemDto;
   source: SourceInfo;
   url: string;
+  /** Played when `url`, an HLS address, leads nowhere playable. */
+  fallbackUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   onEnded(): void;

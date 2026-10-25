@@ -429,6 +429,10 @@ function Failure({
   );
 }
 
+/** The page's font, as in `theme.css`; a cue doesn't inherit it. */
+// eslint-disable-next-line lingui/no-unlocalized-strings -- a CSS value
+const PAGE_FONT = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+
 /** Sized from the video's height, as a cue is by default; Firefox reads a percentage against the page font. */
 function cueCss(style: SubtitleStyle): string {
   const css = subtitleCss(style);
@@ -438,7 +442,7 @@ function cueCss(style: SubtitleStyle): string {
     color: ${css.color};
     background-color: ${css.backgroundColor};
     text-shadow: ${css.textShadow};
-    ${css.fontFamily ? `font-family: ${css.fontFamily};` : ''}
+    font-family: ${css.fontFamily ?? PAGE_FONT};
   }`;
 }
 
@@ -569,6 +573,11 @@ function Player({
     url,
     // A version's headers are for its own address, not HLS or a download.
     headers: url === direct ? requiredHeaders(source) : undefined,
+    // Its HLS can fail over to a release with none, or to an error video.
+    fallbackUrl:
+      url !== direct && !local?.local && !youTube && !requiredHeaders(source)
+        ? direct
+        : undefined,
     subtitleUrl: local ? localSubtitle : undefined,
     source,
     startMs,

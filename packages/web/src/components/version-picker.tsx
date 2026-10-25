@@ -743,7 +743,7 @@ function Versions({
           if (isNotice(source))
             return <Notice key={source.Id} notice={source} />;
           const link = directUrl(client, item.Id!, source);
-          const hls = hlsUrl(client, source);
+          const hls = hlsUrl(client, source, { external: true });
           const actions = [
             ...(!download && downloadable(source)
               ? [

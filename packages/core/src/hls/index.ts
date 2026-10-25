@@ -4,7 +4,12 @@ export {
   serveHls,
   type HlsResponse,
 } from './remux.js';
-export { isUsenetHlsCandidate, usenetTokenFor } from './input.js';
+export { isUsenetHlsCandidate, remuxableUsenetToken } from './input.js';
+export {
+  subtitlePlaylist,
+  withExtraSubtitles,
+  type ExtraSubtitle,
+} from './master.js';
 export {
   AbandonedError as HlsAbandonedError,
   FfmpegError as HlsFfmpegError,
