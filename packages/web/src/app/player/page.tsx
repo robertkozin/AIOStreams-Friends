@@ -35,6 +35,7 @@ import { type Live, useLive } from '@/lib/live-value';
 import { chosenPlayer } from '@/lib/playback/player-choice';
 import {
   directUrl,
+  hlsUrl,
   requiredHeaders,
   useYouTubeStream,
 } from '@/lib/playback/stream';
@@ -60,6 +61,7 @@ import { mayConvert } from '@/lib/playback/quality';
 import { serverChapters, trickplayFeed } from '@/lib/playback/trickplay';
 import { useNowPlaying } from '@/lib/playback/now-playing';
 import { usePlayingAnime } from '@/lib/playback/upscaling';
+import { hlsEngine } from '@/lib/playback/hls';
 import {
   useShowPicks,
   useShowTrackPicks,
@@ -190,8 +192,9 @@ export const OBJECT_FIT: Record<VideoFit, string> = {
 function pageEngines(
   video: React.RefObject<HTMLVideoElement | null>
 ): EngineFactory[] {
-  const own = videoEngine(video);
-  return playsWithWebGpu() ? [webGpuEngine(video), own] : [own];
+  // The server's HLS remux before the file, where WebGPU can't play it.
+  const own = [hlsEngine(video), videoEngine(video)];
+  return playsWithWebGpu() ? [webGpuEngine(video), ...own] : own;
 }
 
 export function PlayerPage({
@@ -658,6 +661,10 @@ function windowSize(source: SourceInfo): { width: number; height: number } {
   };
 }
 
+/** The page's font, as in `theme.css`; a cue doesn't inherit it. */
+// eslint-disable-next-line lingui/no-unlocalized-strings -- a CSS value
+const PAGE_FONT = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+
 /** Sized from the video's height, as a cue is by default; Firefox reads a percentage against the page font. */
 function cueCss(style: SubtitleStyle): string {
   const css = subtitleCss(style);
@@ -667,7 +674,7 @@ function cueCss(style: SubtitleStyle): string {
     color: ${css.color};
     background-color: ${css.backgroundColor};
     text-shadow: ${css.textShadow};
-    ${css.fontFamily ? `font-family: ${css.fontFamily};` : ''}
+    font-family: ${css.fontFamily ?? PAGE_FONT};
   }`;
 }
 
@@ -801,8 +808,11 @@ function Player({
     const page = () => videoEngine(video);
     if (local?.local || youTube)
       return hostPlayer ? [hostPlayer] : pageEngines(video);
+    // The server's remux plays through the page's engines first (the fork's
+    // hlsEngine casts it), with the server's transcode last.
+    const remux = !hostPlayer && !!hlsUrl(client, source);
     const server = transcodeServer(client, user.Id!, item.Id!, maxBitrate);
-    if (transcodes(source))
+    if (transcodes(source) && !remux)
       return [transcodingEngine(hostPlayer ?? page(), server)];
     if (hostPlayer) return [hostPlayer];
     return [
@@ -890,6 +900,12 @@ function Player({
     url: local?.local
       ? local.local.video
       : (youTube ?? directUrl(client, item.Id!, source)),
+    // The server's remux of the version, which the engine may play instead.
+    // VIDAA's own player takes the file as it is.
+    hlsUrl:
+      local?.local || youTube || currentHost().name === 'vidaa'
+        ? undefined
+        : (hlsUrl(client, source) ?? undefined),
     headers: local?.local ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
     laterSubtitles,

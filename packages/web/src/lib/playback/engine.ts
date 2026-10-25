@@ -35,6 +35,8 @@ export interface EngineTrack extends Track {
 
 export interface EngineFile {
   url: string;
+  /** The server's HLS remux of the file, for an engine that would rather play it. */
+  hlsUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   /** Opens without playing. */
@@ -185,6 +187,13 @@ export interface PlayerEngine {
   togglePictureInPicture?(): void;
   /** The page's own window shows the video, which a hidden page may still be painted for. */
   setPictureInPicture?(open: boolean): void;
+  /** Hands the video to a nearby device, such as an Apple TV over AirPlay. */
+  cast?: {
+    /** Reports whether there is a device to hand it to, until stopped. */
+    watch(available: (yes: boolean) => void): () => void;
+    /** Asks which device, in the browser's own picker. */
+    prompt(): void;
+  };
   /** The text of a subtitle file it was given, null for one it can't read; server ones are read from their address. */
   ownText?(id: string): string | null;
   /** Reports when the lines of one of the file's own subtitles show, as it reads them, until stopped. */
