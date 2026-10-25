@@ -18,6 +18,7 @@ import {
   LuLayers,
   LuListOrdered,
   LuListVideo,
+  LuAirplay,
   LuMaximize,
   LuMinimize,
   LuMinus,
@@ -800,6 +801,16 @@ export function OptionButtons({
           onSelect={player.stats.show}
           {...menuState('statistics')}
         />
+      )}
+      {player.cast && !tv && (
+        <ControlButton
+          name="cast"
+          // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's casting is English only, to keep the locale files untouched
+          label="Play on a TV or speaker"
+          onClick={player.cast.prompt}
+        >
+          <LuAirplay />
+        </ControlButton>
       )}
       {player.togglePictureInPicture && !tv && (
         <ControlButton

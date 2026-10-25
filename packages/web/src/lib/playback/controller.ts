@@ -122,6 +122,8 @@ export interface PlayerController {
   toggleFullscreen?: () => void;
   togglePictureInPicture?: () => void;
   setFrame?: (frame: VideoFrame | null) => void;
+  /** Present while there's a device to cast to; `prompt` asks which. */
+  cast?: { prompt(): void };
   /** The file's chapters, where the player reads them. */
   chapters?: Chapter[];
   /** `rows` are the shown page's, for a player that doesn't draw its own. */
@@ -169,6 +171,8 @@ export interface PlayerOptions {
   item: BaseItemDto;
   source: SourceInfo;
   url: string;
+  /** The server's HLS remux of `url`, which an engine may play instead. */
+  hlsUrl?: string;
   headers?: Record<string, string>;
   startMs: number;
   onEnded(): void;
