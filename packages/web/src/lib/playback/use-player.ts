@@ -178,6 +178,7 @@ export function usePlayer(
   const latestServers = useLatest(servers);
   const fileFor = (from: number): EngineFile => ({
     url,
+    hlsUrl: opts.hlsUrl,
     headers: opts.headers,
     startMs: from,
     paused: opts.startPaused,
@@ -462,6 +463,13 @@ export function usePlayer(
     };
   }, [engine, statsPage, statsRows]);
 
+  // Whether there's a device to cast to depends on what the video plays.
+  const [castable, setCastable] = React.useState(false);
+  React.useEffect(() => {
+    setCastable(false);
+    return engine.cast?.watch(setCastable);
+  }, [engine, url]);
+
   const [thumbnailsOn] = useSetting(settings.controls.thumbnails);
   const { pictures } = opts;
   React.useEffect(() => {
@@ -572,6 +580,7 @@ export function usePlayer(
       active.current.setPictureInPicture?.(open);
     },
     setFrame: engine.setFrame && ((frame) => engine.setFrame!(frame)),
+    cast: castable && engine.cast ? { prompt: engine.cast.prompt } : undefined,
     chapters: chapters?.length ? chapters : opts.chapters,
     stats: stats && {
       pages: stats.pages,
