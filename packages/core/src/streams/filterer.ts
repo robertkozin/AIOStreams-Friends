@@ -844,6 +844,14 @@ class StreamFilterer {
         LANGUAGES.includes(inferredLanguage as any)
       ) {
         stream.parsedFile.languages.push(inferredLanguage);
+        // The 'Original' tag was added before this match ran, so add it here
+        // when the inferred language is the original one.
+        if (
+          inferredLanguage === originalLanguage &&
+          !stream.parsedFile.languages.includes('Original')
+        ) {
+          stream.parsedFile.languages.push('Original');
+        }
         logger.debug(
           `Inferred language "${inferredLanguage}" for stream "${stream.filename}" from matched ${source} language (${lang})`
         );
