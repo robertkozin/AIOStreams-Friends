@@ -80,3 +80,35 @@ The frontend uses rsbuild (not Vite/webpack directly) — `pnpm -F frontend dev`
 - Cross-package imports use the workspace name: `from '@aiostreams/core'`.
 - Logger: `createLogger('<scope>')` from `@aiostreams/core` (Pino under the hood); do not `console.log`.
 - Errors that prevent startup should be thrown as `ConfigStartupError` — `server.ts` prints those without a stack trace.
+
+## This fork (AIOStreams-Friends)
+
+A fork that regularly merges upstream AIOStreams. Kept in this one section so merges of the file above stay clean.
+
+### Working here
+
+- Keep fork changes in new files where possible, and keep edits to upstream files small. Don't hand-edit upstream docs (`packages/docs/content/...`) or translation catalogs, and don't let Prettier reformat untouched parts of shared files.
+- Fork strings in `packages/web` are plain literals inside an `eslint-disable lingui/no-unlocalized-strings` block, not `t`. Don't run `i18n:extract`.
+- Work on `main` in the main checkout, uncommitted, unless asked to commit. No feature branches or worktrees.
+- Fork-owned: `packages/mkv-remuxer`, `packages/core/src/hls`, `packages/server/src/routes/api/hls.ts`, `packages/server/src/routes/jellyfin/hls*.ts`, `packages/web/src/lib/playback/hls.ts` and `cast.ts`. Upstream files the fork also touches include web's `controller.ts` and `pages/player.tsx`.
+
+### Tooling
+
+- `mise.toml` pins Node 24 (the native modules — yencode, better-sqlite3 — are built for it; a newer system Node fails to load them). Use `mise run <task>` or `mise x -- <cmd>`.
+- `mise run check` builds, typechecks, lints and tests the packages the fork touches (remuxer, core, server, web). Run it before calling a change done.
+- `mise run web` runs the web app's dev server against the deployed backend (`WEB_BACKEND`, https://tv.robert.town); `mise run web:local` against a local server on :3000.
+- Tests: `packages/core` uses Node's test runner through tsx, not vitest — one file is `pnpm -F core exec tsx --test --import ./test/setup.ts src/path/file.test.ts`. `packages/mkv-remuxer` uses vitest; its media tests generate MKVs with ffmpeg and are skipped when `ffmpeg`/`ffprobe` aren't on PATH.
+- `scratch/` is a gitignored workspace for test media, scripts and the local instance's data (the root `.env` points `DATABASE_URI` and `DISK_CACHE_DIR` there).
+
+### HLS remux (browser and TV playback without an app)
+
+- Native usenet MKV streams are remuxed on demand to HLS (fMP4 + WebVTT) by `packages/mkv-remuxer`, vendored from FPNDev/mkv-remuxer (see its `VENDORED.md`) and consumed through its `dist`, so run `pnpm -F mkv-remuxer build` (or `mise run check`) before core sees a change to it.
+- Path: `core/src/hls/remux.ts` (`serveHls`) → `/api/v1/hls/:token/*`. Jellyfin offers the remux as a version's `TranscodingUrl` (`routes/jellyfin/hls.ts`), and `hls-master.ts` redirects to the master with `?audio=<n>` (`withDefaultAudio`: the n-th audio rendition becomes the default). The web player (`web/src/lib/playback/hls.ts`) plays it with native HLS or hls.js and casts it through the Cast SDK (`cast.ts`).
+- One variant, one audio group: AAC, MP3, Opus and FLAC are copied; everything else (AC-3, E-AC-3, DTS, TrueHD…) is transcoded to AAC. Per-client audio passthrough was tried and removed as not worth the negotiation it needs. Dolby Vision profiles 5 and 8 are described in the playlist (`dvh1` / `SUPPLEMENTAL-CODECS`), and every audio language is kept.
+- Bump `CACHE_VERSION` in `mkv-remuxer/src/hls/hls-service.ts` when renditions or playlists change (it clears cached masters on start), and `MEDIA_INDEX_VERSION` in `media/media-index.ts` when the index's fields change.
+
+### Local testing
+
+- The Jellyfin web app is at `/jellyfin/<uuid>/<encrypted password>/web/`; sign in with the config UUID as user name and the config password as PIN. Routes are hash routes: `/web/#/play/<itemId>?source=<mediaSourceId>`.
+- Media source ids change when the server restarts, so fetch fresh ones from `PlaybackInfo` before a browser test. Only usenet versions go through the remux (a debrid version redirects to `/static/hls/...`).
+- Headless Brave doesn't autoplay the player here; start playback from the test (`video.play()`).
