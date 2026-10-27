@@ -1,0 +1,64 @@
+[tools]
+# Native modules (yencode, better-sqlite3, bcrypt) are built for this major;
+# reinstall with `mise run install` after changing it.
+node = "24"
+
+# `mise run <task>` runs with the tools above whether or not mise is
+# activated in the shell. A git-ignored mise.local.toml can override any of
+# this, e.g. [env] WEB_BACKEND = "https://other.host".
+
+[env]
+# The deployed server `mise run web` develops the web app against.
+WEB_BACKEND = "https://tv.robert.town"
+
+[tasks.install]
+description = "Install dependencies (rebuilds native modules for this Node)"
+run = "pnpm install"
+
+[tasks.build]
+description = "Build every package"
+run = "pnpm build"
+
+[tasks.dev]
+description = "Watch core, server, frontend and web"
+run = "pnpm dev"
+
+[tasks."start:dev"]
+description = "Backend only, reloading on change"
+run = "pnpm start:dev"
+
+[tasks.start]
+description = "Run the built server"
+run = "pnpm start"
+
+[tasks.test]
+description = "Run every package's tests"
+run = "pnpm test"
+
+[tasks.check]
+description = "Typecheck, lint and test what the fork touches (remuxer, core, server, web)"
+# Builds what later packages typecheck against, in the root build's order.
+run = [
+  "pnpm -F crypto run build",
+  "pnpm -F mkv-remuxer run build",
+  "pnpm -F mkv-remuxer run typecheck",
+  "pnpm -F core run build",
+  "pnpm -F server exec tsc --noEmit",
+  "pnpm -F web typecheck",
+  "pnpm -F web lint",
+  "pnpm -F mkv-remuxer test",
+  "pnpm -F core test",
+  "pnpm -F server test",
+]
+
+[tasks.web]
+description = "Web app dev server against the deployed backend ($WEB_BACKEND)"
+run = "PUBLIC_BACKEND_BASE_URL=$WEB_BACKEND pnpm -F web dev"
+
+[tasks."web:local"]
+description = "Web app dev server against a local backend on :3000"
+run = "PUBLIC_BACKEND_BASE_URL=http://localhost:3000 pnpm -F web dev"
+
+[tasks."web:check"]
+description = "Typecheck and lint the web app"
+run = ["pnpm -F web typecheck", "pnpm -F web lint"]
