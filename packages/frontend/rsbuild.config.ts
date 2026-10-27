@@ -28,6 +28,8 @@ export default defineConfig({
   },
   html: {
     template: './index.html',
+    // Unset, Rsbuild adds public/favicon.ico, the web app's.
+    favicon: './public/dashboard-favicon.ico',
   },
   resolve: {
     alias: {

@@ -326,6 +326,8 @@ router.get(
     const name = await webAppName(req);
     res.type('application/manifest+json').send(
       JSON.stringify({
+        // Resolved against the origin, not the manifest, so spelled out.
+        id: `${req.baseUrl}/web/`,
         name,
         short_name: name,
         start_url: './',
