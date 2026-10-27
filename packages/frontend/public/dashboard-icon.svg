@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#ffc700"/>
+<g fill="none" stroke="#5a3a10" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+<!-- R stem --><path d="M271 181C274 301 304 428 292 459"/>
+<!-- R tick + bowl --><path stroke-width="34" d="M250 257L298 222C347 207 368 202 406 225S414 298 379 315S320 336 298 339"/>
+<!-- R leg --><path stroke-width="35" d="M306 368C322 393 388 406 416 413"/>
+<!-- o --><path stroke-width="34" d="M538 341C506 368 496 390 491 438S516 487 534 480S589 440 587 422S555 385 545 382"/>
+<!-- b stem --><path stroke-width="30" d="M622 262C664 375 650 395 644 500"/>
+<!-- b bowl --><path stroke-width="33" d="M651 420C661 382 711 356 748 381S778 454 746 475S700 504 652 492"/>
+<!-- gear ring --><path stroke-width="44" d="M512 628C574 624 618 672 616 734S566 838 508 836S406 790 408 728S448 632 520 632"/>
+<!-- gear hub --><path stroke-width="30" d="M514 700C534 700 548 716 546 736S530 768 510 766S478 750 480 732S494 702 518 704"/>
+<!-- teeth --><path stroke-width="62" stroke-linecap="square" d="M624 728L660 727M587 815L611 842M516 844L517 880M429 807L402 831M400 736L364 737M437 649L413 622M508 620L507 584M595 657L622 633"/>
+</g>
+</svg>
