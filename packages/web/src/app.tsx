@@ -255,7 +255,7 @@ function Session({
     [infoQuery.data, branding]
   );
   React.useEffect(() => {
-    document.title = info.name || 'AIOStreams';
+    document.title = info.name || document.title;
   }, [info.name]);
   React.useEffect(() => {
     if (ready) currentHost().signedIn?.(ready.client);
