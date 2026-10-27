@@ -301,6 +301,11 @@ app.get(
     '/icon0.svg',
     '/icon1.png',
     '/logo_alt.png',
+    '/dashboard-favicon.ico',
+    '/dashboard-icon.svg',
+    '/dashboard-apple-icon.png',
+    '/dashboard-192x192.png',
+    '/dashboard-512x512.png',
   ],
   staticRateLimiter,
   express.static(frontendRoot, { index: false, maxAge: '1h' })
