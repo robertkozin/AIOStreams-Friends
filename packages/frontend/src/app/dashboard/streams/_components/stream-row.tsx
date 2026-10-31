@@ -41,6 +41,7 @@ import {
   streamProgress,
 } from './shared';
 import type { BlockTarget } from './block-modal';
+import { ViewerPills } from './viewers';
 
 export function StreamRow({
   stream,
@@ -196,6 +197,7 @@ export function StreamRow({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-[--muted]">
         <Pill>{displayUser(stream.username)}</Pill>
+        <ViewerPills viewers={stream.viewers} />
         {stream.clientIp && <ClientIpPill ip={stream.clientIp} />}
         {stream.size > 0 && (
           <span>

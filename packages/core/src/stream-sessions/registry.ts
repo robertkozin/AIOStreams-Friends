@@ -17,6 +17,7 @@ import {
 import { checkAdmission } from './limits.js';
 import { recordedClientIp } from './client-ip.js';
 import { instanceId } from './instance-id.js';
+import { onStreamEnded, onStreamStarted } from './viewers.js';
 import type {
   LiveStreamSession,
   StreamEndReason,
@@ -200,6 +201,7 @@ export class StreamRegistry {
     };
     this.byKey.set(key, session);
     this.byId.set(session.id, session);
+    onStreamStarted(session);
     return { ok: true, handle: this.addRead(session, input, now) };
   }
 
@@ -325,6 +327,7 @@ export class StreamRegistry {
     );
     this.byId.delete(session.id);
     this.finalised.push(session);
+    onStreamEnded(session, reason);
   }
 
   /** Force-stop one session. Returns whether it was live here. */

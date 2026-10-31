@@ -45,3 +45,9 @@ export {
 } from './service.js';
 export { proxyTargetKey, usenetTargetKey } from './target-key.js';
 export { instanceId } from './instance-id.js';
+export {
+  noteStreamViewer,
+  viewerLabel,
+  type StreamViewer,
+  type StreamViewerHint,
+} from './viewers.js';

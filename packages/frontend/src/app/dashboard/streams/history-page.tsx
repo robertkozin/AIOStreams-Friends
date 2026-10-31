@@ -33,6 +33,7 @@ import {
   displayUser,
   relativeTime,
 } from './_components/shared';
+import { ViewerPills } from './_components/viewers';
 
 const PAGE_SIZE = 50;
 
@@ -262,6 +263,7 @@ export function StreamsHistoryPage() {
                           <td className="p-3">
                             <div className="flex items-center gap-2">
                               <span>{displayUser(e.username)}</span>
+                              <ViewerPills viewers={e.viewers} />
                               {e.clientIp && <ClientIpPill ip={e.clientIp} />}
                             </div>
                           </td>

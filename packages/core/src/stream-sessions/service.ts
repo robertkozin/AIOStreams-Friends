@@ -18,6 +18,7 @@ import {
 } from './bandwidth.js';
 import { connectionLimitFor, globalConnectionLimit } from './limits.js';
 import type { LiveStreamSession } from './types.js';
+import { withViewers, type StreamViewer } from './viewers.js';
 
 const logger = createLogger('streams');
 
@@ -36,7 +37,7 @@ const BANDWIDTH_RETENTION_DAYS = 400;
 const ORPHAN_STOP_MS = 60_000;
 
 export interface LiveStreamsSnapshot {
-  streams: LiveStreamSession[];
+  streams: Array<LiveStreamSession & { viewers?: StreamViewer[] }>;
   summary: {
     /** Sessions actually pushing bytes. */
     streaming: number;
@@ -75,7 +76,7 @@ export async function getLiveStreams(
   const count = (activity: LiveStreamSession['activity']) =>
     streams.filter((s) => s.activity === activity).length;
   return {
-    streams,
+    streams: await withViewers(streams),
     summary: {
       streaming: count('streaming'),
       paused: count('paused'),
@@ -115,10 +116,12 @@ function rowToLive(row: StreamSessionRow, now = Date.now()): LiveStreamSession {
   };
 }
 
-export async function getStreamHistory(
-  query: StreamHistoryQuery
-): Promise<{ entries: StreamSessionRow[]; total: number }> {
-  return StreamSessionRepository.listHistory(query);
+export async function getStreamHistory(query: StreamHistoryQuery): Promise<{
+  entries: Array<StreamSessionRow & { viewers?: StreamViewer[] }>;
+  total: number;
+}> {
+  const { entries, total } = await StreamSessionRepository.listHistory(query);
+  return { entries: await withViewers(entries), total };
 }
 
 /** Remove finished sessions: the given ids, or all of them. */

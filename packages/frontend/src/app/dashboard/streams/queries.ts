@@ -24,6 +24,17 @@ export type StreamEndReason =
  */
 export type StreamActivity = 'streaming' | 'paused' | 'idle';
 
+/** The Jellyfin persona behind a stream, when the server could tell. */
+export interface StreamViewer {
+  uuid: string;
+  alias?: string;
+  personaId?: string;
+  persona: string;
+  client?: string;
+  device?: string;
+  title?: string;
+}
+
 /** One in-flight watch: every range read of a playback folded into one row. */
 export interface LiveStreamSession {
   id: string;
@@ -47,6 +58,7 @@ export interface LiveStreamSession {
   currentBytes: number;
   bytesPerSec: number;
   instanceId: string;
+  viewers?: StreamViewer[];
 }
 
 export interface LiveStreams {
@@ -79,6 +91,7 @@ export interface StreamHistoryRow {
   endedAt?: number;
   endReason?: StreamEndReason;
   instanceId: string;
+  viewers?: StreamViewer[];
 }
 
 /**
