@@ -46,6 +46,7 @@ import {
   maxVersionsFor,
   resolvePlayback,
 } from './resolve.js';
+import { noteViewer } from './viewers.js';
 
 const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
@@ -312,9 +313,9 @@ async function playbackInfo(req: Request, res: Response) {
   const target = loc.requestedMsid ?? offered[0].msid;
   if (bodyOf(req).SkipSubtitles !== true)
     await enrichSourceSubtitles(loc.ctx, memo, target);
-  await applyProbedMediaInfo(loc.ctx, memo, target, {
-    playing: isPlaying(req, loc),
-  });
+  const playing = isPlaying(req, loc);
+  await applyProbedMediaInfo(loc.ctx, memo, target, { playing });
+  if (playing) noteViewer(req, loc.ctx, memo, pickSource(memo, target));
   const sources = mediaSourcesFrom(req, loc.ctx, memo, {
     firstId: named?.msid ?? loc.itemId,
     tracks: await trackPreferences(loc.ctx),
@@ -343,6 +344,7 @@ async function streamHandler(req: Request, res: Response) {
     res.status(404).json({ Message: 'No playable stream' });
     return;
   }
+  noteViewer(req, loc.ctx, memo, source);
   res.setHeader('Cache-Control', 'no-store');
   res.redirect(
     302,
