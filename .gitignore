@@ -11,7 +11,8 @@ metadata.json
 data/
 testing/
 build/
+
 # Local workspace for testing
 scratch/
-
+mise.local.toml
 .playwright-mcp/
