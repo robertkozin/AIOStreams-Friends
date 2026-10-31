@@ -96,9 +96,9 @@ A fork that regularly merges upstream AIOStreams. Kept in this one section so me
 
 - `mise.toml` pins Node 24 (the native modules — yencode, better-sqlite3 — are built for it; a newer system Node fails to load them). Use `mise run <task>` or `mise x -- <cmd>`.
 - `mise run check` builds, typechecks, lints and tests the packages the fork touches (remuxer, core, server, web). Run it before calling a change done.
-- `mise run web` runs the web app's dev server against the deployed backend (`WEB_BACKEND`, https://tv.robert.town); `mise run web:local` against a local server on :3000.
+- Two dev workflows: `mise run dev` runs everything (the local server on :3000, and the web app's dev server, on :21459, against it); `mise run web` runs only the web app, against the local server by default; a `[tasks.web]` block with only `env` in `mise.local.toml` points it at the deployed one. Anything else goes through `mise x -- <cmd>`.
 - Tests: `packages/core` uses Node's test runner through tsx, not vitest — one file is `pnpm -F core exec tsx --test --import ./test/setup.ts src/path/file.test.ts`. `packages/mkv-remuxer` uses vitest; its media tests generate MKVs with ffmpeg and are skipped when `ffmpeg`/`ffprobe` aren't on PATH.
-- `scratch/` is a gitignored workspace for test media, scripts and the local instance's data (the root `.env` points `DATABASE_URI` and `DISK_CACHE_DIR` there).
+- `scratch/` is a gitignored workspace for test media, scripts and the local instance's data (`DATABASE_URI` points there). The deployed backend and the local server's settings and secrets live in the gitignored `mise.local.toml`; there is no root `.env`. Run the server through `mise run dev` (or `mise x --`), which loads it.
 
 ### HLS remux (browser and TV playback without an app)
 
