@@ -44,6 +44,7 @@ import {
   reportRating,
 } from './handoff.js';
 import { pickSource } from './playback.js';
+import { notePlaying } from './viewers.js';
 
 const router: Router = Router({ mergeParams: true });
 
@@ -365,6 +366,7 @@ router.post(
   ],
   jf(async (req, res, ctx) => {
     const id = idFrom(req);
+    if (id) void notePlaying(req, ctx, id, mediaSourceIdOf(req));
     if (id)
       await record(
         ctx,
@@ -390,6 +392,7 @@ router.post(
   jf(async (req, res, ctx) => {
     const id = idFrom(req);
     if (id) {
+      void notePlaying(req, ctx, id, mediaSourceIdOf(req));
       const body = bodyOf(req);
       await record(
         ctx,
