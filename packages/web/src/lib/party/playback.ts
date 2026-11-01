@@ -43,7 +43,7 @@ interface Report {
   at: number;
 }
 
-class Follower {
+export class Follower {
   private sample: Report = { positionMs: 0, at: performance.now() };
   private reports: Report[] = [];
   private rate = 1;
@@ -311,6 +311,10 @@ class Follower {
   }
 }
 
+let following: Follower | null = null;
+/** The follower of the player open now, if it follows a party. */
+export const partyFollower = () => following;
+
 /**
  * Binds a player to the party while it plays the party's item: commands drive
  * it, and its own controls ask the group instead of acting.
@@ -334,6 +338,7 @@ export function usePartyPlayer(
       playlistItemId
     );
     setFollower(follower);
+    following = follower;
     const stopPlayhead = latest.current.playhead.subscribe(() =>
       follower.onPosition(latest.current.playhead.positionMs)
     );
@@ -346,6 +351,7 @@ export function usePartyPlayer(
       stopEvents();
       clearInterval(ticker);
       follower.stop();
+      if (following === follower) following = null;
       setFollower(null);
     };
   }, [playlistItemId, latest, hasSpeed]);

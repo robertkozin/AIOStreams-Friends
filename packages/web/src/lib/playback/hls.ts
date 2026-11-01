@@ -1,6 +1,12 @@
 import { t } from '@lingui/core/macro';
 import Hls, { ErrorDetails, ErrorTypes, Events } from 'hls.js';
 import type React from 'react';
+import {
+  followsParty,
+  PARTY_STATS_PAGE,
+  partyDriftLine,
+  partyStatsText,
+} from '../party/stats';
 import { checkSubtitleFile, readSubtitleFile } from '../subtitles/files';
 import { subtitleLine } from '../subtitles/style';
 import {
@@ -973,6 +979,11 @@ export function hlsEngine(
         nativeAudio: playlist?.audio[nativeAudio()]?.name,
       });
     };
+    const pageText = (page: string) => {
+      if (page === PARTY_STATS_PAGE.id) return partyStatsText();
+      const party = partyDriftLine();
+      return party ? `${statsText()}\n${party}` : statsText();
+    };
 
     return {
       load(next) {
@@ -1078,12 +1089,16 @@ export function hlsEngine(
       },
       toggleFullscreen: toggleDocumentFullscreen,
       stats: {
-        pages: STATS_PAGES,
+        get pages() {
+          return followsParty()
+            ? [...STATS_PAGES, PARTY_STATS_PAGE]
+            : STATS_PAGES;
+        },
         show(page) {
           clearInterval(statsTimer);
           statsTimer = 0;
           if (!page) return emit({ type: 'stats-text', text: undefined });
-          const tick = () => emit({ type: 'stats-text', text: statsText() });
+          const tick = () => emit({ type: 'stats-text', text: pageText(page) });
           tick();
           statsTimer = window.setInterval(tick, STATS_MS);
         },
