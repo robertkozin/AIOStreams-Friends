@@ -62,6 +62,7 @@ import { serverChapters, trickplayFeed } from '@/lib/playback/trickplay';
 import { useNowPlaying } from '@/lib/playback/now-playing';
 import { usePlayingAnime } from '@/lib/playback/upscaling';
 import { hlsEngine } from '@/lib/playback/hls';
+import { withPartyStats } from '@/lib/party/stats';
 import {
   useShowPicks,
   useShowTrackPicks,
@@ -894,7 +895,7 @@ function Player({
     };
   }, [local, youTube, client, item, source]);
   const laterSubtitles = useLaterSubtitles(item.Id!, source, !local?.local);
-  const own = usePlayer(engines, {
+  const own = usePlayer(engines.map(withPartyStats), {
     client,
     item,
     url: local?.local
