@@ -9,7 +9,11 @@ import type {
   EngineState,
   EngineTrack,
 } from './engine';
-import { isFullscreen, toggleDocumentFullscreen } from './fullscreen';
+import {
+  isFullscreen,
+  toggleDocumentFullscreen,
+  watchFullscreen,
+} from './fullscreen';
 
 const SUBTITLE_TYPES = ['srt', 'vtt', 'ass', 'ssa'];
 
@@ -204,15 +208,15 @@ export function videoEngine(
         for (const event of audioEvents)
           audio?.addEventListener(event, listTracks);
         for (const e of elements) e.addEventListener('load', onTrackLoad);
-        const onFullscreen = () => set({ fullscreen: isFullscreen() });
-        document.addEventListener('fullscreenchange', onFullscreen);
+        const onFullscreen = () => set({ fullscreen: isFullscreen(el) });
+        const unwatchFullscreen = watchFullscreen(el, onFullscreen);
         detach = () => {
           for (const [event, handler] of Object.entries(handlers))
             el.removeEventListener(event, handler);
           for (const event of audioEvents)
             audio?.removeEventListener(event, listTracks);
           for (const e of elements) e.removeEventListener('load', onTrackLoad);
-          document.removeEventListener('fullscreenchange', onFullscreen);
+          unwatchFullscreen();
         };
         onFullscreen();
         el.autoplay = !next.paused;
@@ -263,7 +267,7 @@ export function videoEngine(
         line = subtitleLine(subtitleStyle, height);
         placeCues();
       },
-      toggleFullscreen: toggleDocumentFullscreen,
+      toggleFullscreen: () => toggleDocumentFullscreen(video.current),
       ownText: (id) => files.find((f) => f.id === id)?.text ?? null,
       subtitleFiles: {
         types: SUBTITLE_TYPES,
