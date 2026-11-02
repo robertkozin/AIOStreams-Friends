@@ -22,7 +22,11 @@ import type {
   EngineState,
   EngineTrack,
 } from './engine';
-import { isFullscreen, toggleDocumentFullscreen } from './fullscreen';
+import {
+  isFullscreen,
+  toggleDocumentFullscreen,
+  watchFullscreen,
+} from './fullscreen';
 import {
   STATS_PAGES,
   videoStatsRows,
@@ -674,8 +678,8 @@ export function hlsEngine(
             f.track.mode = 'disabled';
       };
       el.textTracks.addEventListener('change', onTextTracksChange);
-      const onFullscreen = () => set({ fullscreen: isFullscreen() });
-      document.addEventListener('fullscreenchange', onFullscreen);
+      const onFullscreen = () => set({ fullscreen: isFullscreen(el) });
+      const unwatchFullscreen = watchFullscreen(el, onFullscreen);
       detach = () => {
         for (const [event, handler] of Object.entries(handlers))
           el.removeEventListener(event, handler);
@@ -686,7 +690,7 @@ export function hlsEngine(
         el.textTracks.removeEventListener('change', onTextTracksChange);
         for (const track of Array.from(el.textTracks))
           track.removeEventListener('cuechange', onTrackLoad);
-        document.removeEventListener('fullscreenchange', onFullscreen);
+        unwatchFullscreen();
       };
       onFullscreen();
       // Nor plays at all while a cast session runs, which takes this file.
@@ -1000,7 +1004,7 @@ export function hlsEngine(
         line = subtitleLine(subtitleStyle, height);
         placeCues();
       },
-      toggleFullscreen: toggleDocumentFullscreen,
+      toggleFullscreen: () => toggleDocumentFullscreen(video.current),
       stats: {
         pages: STATS_PAGES,
         read: async () => statsRows(),
