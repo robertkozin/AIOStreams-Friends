@@ -1010,7 +1010,7 @@ function Player({
   React.useLayoutEffect(() => onCovered(covered), [covered, onCovered]);
   const [place, setPlace] = React.useState<MiniVideoPlace | null>(null);
   React.useEffect(() => {
-    if (mini) leaveFullscreen();
+    if (mini) leaveFullscreen(video.current);
   }, [mini]);
 
   const [pipWindow] = useSetting(settings.player.pictureInPicture);
