@@ -109,8 +109,8 @@ async function exitFullscreen(video?: HTMLVideoElement | null): Promise<void> {
   else doc.webkitExitFullscreen?.();
 }
 
-export function leaveFullscreen(): void {
-  if (isFullscreen()) void exitFullscreen().catch(() => {});
+export function leaveFullscreen(video?: HTMLVideoElement | null): void {
+  if (isFullscreen(video)) void exitFullscreen(video).catch(() => {});
   else leaveWindowFullscreen();
 }
 

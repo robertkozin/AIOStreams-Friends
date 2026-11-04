@@ -759,7 +759,7 @@ function Player({
   React.useLayoutEffect(() => onCovered(covered), [covered, onCovered]);
   const [place, setPlace] = React.useState<MiniVideoPlace | null>(null);
   React.useEffect(() => {
-    if (mini) leaveFullscreen();
+    if (mini) leaveFullscreen(video.current);
   }, [mini]);
 
   // The app's own player in its own window; the page's video must stay, or
