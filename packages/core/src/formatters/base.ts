@@ -3,7 +3,7 @@ import * as constants from '../utils/constants.js';
 import { formatHours, makeSmall } from './utils.js';
 import { languageToCode, languageToEmoji } from '../utils/languages.js';
 import { describedTracks } from '../utils/media-info.js';
-import { streamWarnings } from './friendly.js';
+import { streamWarnings } from './warnings.js';
 import { compileTemplate as engineCompileTemplate } from './engine/compile.js';
 import { canonicaliseField } from './engine/fields.js';
 import { NEW_LINE_SENTINEL, REMOVE_LINE_SENTINEL } from './engine/sentinels.js';
@@ -788,7 +788,10 @@ export abstract class BaseFormatter {
           ) || [],
         preloading: stream.preloading ?? false,
         idMatched: stream.idMatched ?? false,
-        warnings: streamWarnings(stream),
+        warnings: streamWarnings(
+          stream,
+          this.formatterContext.episodeRuntime || this.formatterContext.runtime
+        ),
       },
       metadata: {
         queryType: this.formatterContext.queryType || null,
