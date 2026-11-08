@@ -16,7 +16,6 @@ import {
 } from '../../utils/languages.js';
 import { compileObjectFilter } from '../../utils/object-filter.js';
 import { sanitise, substituteTools } from './sentinels.js';
-import { friendlyLabel } from '../friendly.js';
 
 /**
  * Modifier implementations, and the binding of a modifier's source text to a
@@ -66,7 +65,6 @@ const stringModifiers = {
   superscript: (value: string) => mapChars(value, DIGITS, SUPERSCRIPT_DIGITS),
   languagecode: toLanguageCode,
   languageemoji: toLanguageEmoji,
-  friendly: friendlyLabel,
 };
 
 const DIGITS = '0123456789+-=()';
@@ -143,8 +141,6 @@ const arrayModifiers = {
   },
   languagecode: (value: string[]) => mapLanguages(value, toLanguageCode),
   languageemoji: (value: string[]) => mapLanguages(value, toLanguageEmoji),
-  friendly: (value: string[]) =>
-    value.map((item) => friendlyLabel(String(item))),
   string: (value: string[]) => value.toString(),
 };
 
