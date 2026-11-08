@@ -71,6 +71,7 @@ import { KnabenPreset } from './knaben.js';
 import { LibraryPreset } from './library.js';
 import { EztvPreset } from './eztv.js';
 import { XtreamPreset } from './xtream.js';
+import { NzbgeekPreset } from './nzbgeek.js';
 import { TheRARBGPreset } from './therarbg.js';
 import { ThePirateBayPreset } from './thePirateBay.js';
 import { TsukihimePreset } from './tsukihime.js';
@@ -157,6 +158,7 @@ let PRESET_LIST: string[] = [
   'debridio-tvdb',
   'debridio-ic4a',
   'streaming-catalogs',
+  'nzbgeek',
   'anime-catalogs',
   'torrent-catalogs',
   'rpdb-catalogs',
@@ -345,6 +347,8 @@ export class PresetManager {
         return EztvPreset;
       case 'xtream':
         return XtreamPreset;
+      case 'nzbgeek':
+        return NzbgeekPreset;
       case 'therarbg':
         return TheRARBGPreset;
       case 'the-pirate-bay':

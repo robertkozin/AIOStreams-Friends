@@ -74,6 +74,7 @@ export {
   SeaDexDataset,
   LibraryAddon,
   XtreamAddon,
+  NzbgeekAddon,
   preWarmLibraryCaches,
   refreshLibraryCacheForService,
   testNabEndpoint,

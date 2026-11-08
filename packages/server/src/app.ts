@@ -62,6 +62,7 @@ import {
   seadex,
   easynews,
   library,
+  nzbgeek,
 } from './routes/builtins/index.js';
 import {
   ipMiddleware,
@@ -251,6 +252,7 @@ builtinsRouter.use('/seadex', seadex);
 builtinsRouter.use('/easynews', easynews);
 builtinsRouter.use('/library', library);
 builtinsRouter.use('/xtream', xtream);
+builtinsRouter.use('/nzbgeek', nzbgeek);
 app.use('/builtins', builtinsRouter);
 
 app.use('/blocklist', publicBlocklistRouter);
