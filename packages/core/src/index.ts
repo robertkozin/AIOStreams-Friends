@@ -76,6 +76,7 @@ export {
   XtreamAddon,
   XtreamError,
   testXtreamLogin,
+  NzbgeekAddon,
   preWarmLibraryCaches,
   refreshLibraryCacheForService,
   testNabEndpoint,
