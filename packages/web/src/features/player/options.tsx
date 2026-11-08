@@ -76,6 +76,9 @@ import { RATES, rateLabel } from './keys';
 import { useLatest } from '@/hooks/use-latest';
 import { qualityOptions } from '@/lib/playback/quality';
 
+/* eslint-disable-next-line lingui/no-unlocalized-strings -- the fork's own label, left untranslated */
+const EMBEDDED_LABEL = 'Embedded';
+
 /** Opens in the menu's place from a row under its list. */
 interface MenuPage {
   name: string;
@@ -156,6 +159,14 @@ function Menu({
           </span>
         )}
       </span>
+      {option.file && (
+        <span
+          data-name="embedded"
+          className="ms-auto flex-none ps-3 text-[0.8em] text-gray-400"
+        >
+          {EMBEDDED_LABEL}
+        </span>
+      )}
     </DropdownMenuItem>
   );
   return (
