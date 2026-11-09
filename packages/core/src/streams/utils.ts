@@ -61,6 +61,8 @@ class StreamUtils {
     copy.torrent = undefined;
     copy.indexer = undefined;
     copy.age = undefined;
+    copy.grabs = undefined;
+    copy.grabPopularity = undefined;
     copy.duration = undefined;
     copy.folderName = undefined;
     copy.filename = undefined;

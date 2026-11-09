@@ -6,6 +6,7 @@ import {
   getTimeTakenSincePoint,
 } from '../utils/index.js';
 import { Wrapper } from '../main/wrapper.js';
+import { applyGrabPopularity } from './grabs.js';
 import {
   ExitConditionEvaluator,
   GroupConditionEvaluator,
@@ -247,6 +248,7 @@ class StreamFetcher {
       const results = await Promise.all(addons.map(fetchFromAddon));
 
       const groupStreams = results.flatMap((r) => r.streams);
+      applyGrabPopularity(groupStreams);
       const groupErrors = results.flatMap((r) => r.errors);
       const groupStatistics = results
         .flatMap((r) => r.statistic)

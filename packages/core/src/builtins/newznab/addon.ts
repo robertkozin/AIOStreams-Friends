@@ -196,6 +196,10 @@ export class NewznabAddon extends BaseNabAddon<NewznabAddonConfig, NewznabApi> {
         hash: md5,
         nzb: nzbUrl,
         age: age,
+        grabs:
+          typeof result.newznab?.grabs === 'number'
+            ? result.newznab.grabs
+            : undefined,
         title: result.title,
         indexer:
           result.newznab?.sourceIndexerName?.toString() ??

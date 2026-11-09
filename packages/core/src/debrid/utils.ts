@@ -208,6 +208,7 @@ interface BaseFile {
   group?: string;
   parsedMediaInfo?: ParsedMediaInfo;
   age?: number; // age in hours
+  grabs?: number; // times the indexer has served the NZB
   downloadvolumefactor?: number; // multiplier for the download volume that counts toward the user’s account on the tracker
   library?: boolean; // whether the file is already in the user's library
 }

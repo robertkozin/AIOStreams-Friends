@@ -150,6 +150,8 @@ export interface ParseValue {
     seasonEpisode: string[] | null;
     seasonPack: boolean;
     seeders: number | null;
+    grabs: number | null;
+    grabPopularity: number | null;
     private: boolean;
     freeleech: boolean | null;
     age: string | null;
@@ -721,6 +723,11 @@ export abstract class BaseFormatter {
         audioChannels: sortedAudioChannels || null,
         indexer: stream.indexer || null,
         seeders: stream.torrent?.seeders ?? null,
+        grabs: stream.grabs ?? null,
+        grabPopularity:
+          stream.grabPopularity !== undefined
+            ? Math.round(stream.grabPopularity * 100) / 100
+            : null,
         private: stream.torrent?.private ?? false,
         freeleech: stream.torrent?.freeleech ?? null,
         year: stream.parsedFile?.year || null,
