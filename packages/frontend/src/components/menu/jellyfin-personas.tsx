@@ -80,8 +80,8 @@ function PersonalAddress({
         onFocus={(e) => e.currentTarget.select()}
         help={
           pinSignIn
-            ? 'Signs in this user alone, with their PIN. Works once you save, and a new address turns this one off.'
-            : 'Signs in this user alone. This instance asks for your password there, so approve their devices with Quick Connect instead. Works once you save, and a new address turns this one off.'
+            ? 'Signs in this user and their household, each with their own PIN. Works once you save, and a new address turns this one off.'
+            : 'Signs in this user and their household. This instance asks for your password there, so approve their devices with Quick Connect instead. Works once you save, and a new address turns this one off.'
         }
       />
       <div className="flex flex-wrap gap-2">
@@ -120,6 +120,35 @@ function idFor(name: string, existing: Persona[]): string {
 
 const sameName = (a: string, b: string) =>
   a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Picks from the households in use, so a typo doesn't start a second one. */
+function HouseholdField({
+  value,
+  households,
+  onChange,
+}: {
+  value: string | undefined;
+  households: string[];
+  onChange: (value: string | undefined) => void;
+}) {
+  return (
+    <>
+      <TextInput
+        label="Household"
+        help="Users with the same household see each other and can switch between them, and a shared TV can use any member's address."
+        list="jellyfin-households"
+        maxLength={32}
+        value={value ?? ''}
+        onValueChange={(next) => onChange(next || undefined)}
+      />
+      <datalist id="jellyfin-households">
+        {households.map((household) => (
+          <option key={household} value={household} />
+        ))}
+      </datalist>
+    </>
+  );
+}
 
 function variantsLabel(ids: string[] | undefined): string {
   return ids?.length ? `Variants ${ids.join(', ')}` : 'Base config';
@@ -498,6 +527,15 @@ export function JellyfinPersonas() {
     }));
 
   const rows = useSortableRows(personas, (next) => patch({ personas: next }));
+  const households = [
+    ...new Map(
+      personas.flatMap((user) =>
+        user.household
+          ? [[user.household.toLowerCase(), user.household] as const]
+          : []
+      )
+    ).values(),
+  ];
 
   const close = () => {
     setEditing(null);
@@ -509,7 +547,13 @@ export function JellyfinPersonas() {
       toast.error(`At most ${maxPersonas} users.`);
       return;
     }
-    setDraft({ id: '', name: '', history: 'own' });
+    setDraft({
+      id: '',
+      name: '',
+      history: 'own',
+      hidden: true,
+      address: newAddress(),
+    });
     setEditing(personas.length);
   };
 
@@ -568,6 +612,7 @@ export function JellyfinPersonas() {
       variants: draft.variants?.length ? draft.variants : undefined,
       trackers,
       hidden: draft.hidden || undefined,
+      household: draft.household?.trim() || undefined,
       address: draft.hidden ? (draft.address ?? newAddress()) : undefined,
       lock: draft.lock || undefined,
     };
@@ -710,6 +755,7 @@ export function JellyfinPersonas() {
                     ? `tracker id ${persona.id}`
                     : null,
                   persona.hidden ? 'kept separate' : null,
+                  persona.household ? `household ${persona.household}` : null,
                   persona.lock ? 'PIN' : null,
                 ]
                   .filter(Boolean)
@@ -901,7 +947,7 @@ export function JellyfinPersonas() {
 
             <Switch
               label="Keep separate from other users"
-              help="Left off the sign-in picker and other users' lists, and sees no one else. Signs in on an address of its own."
+              help="Left off the sign-in picker and other users' lists, and sees no one outside its household. Signs in on an address of its own."
               side="right"
               value={draft.hidden ?? false}
               onValueChange={(value) =>
@@ -919,6 +965,11 @@ export function JellyfinPersonas() {
                 onRenew={() => setDraft({ ...draft, address: newAddress() })}
               />
             )}
+            <HouseholdField
+              value={draft.household}
+              households={households}
+              onChange={(household) => setDraft({ ...draft, household })}
+            />
 
             <PinField
               value={draft.lock}

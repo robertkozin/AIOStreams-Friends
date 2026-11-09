@@ -571,7 +571,7 @@ export function SignInScreen({
     );
   }
   const back: SignInLink[] =
-    users.length && !personal
+    users.length > (personal ? 1 : 0)
       ? [
           {
             label: t`Back`,

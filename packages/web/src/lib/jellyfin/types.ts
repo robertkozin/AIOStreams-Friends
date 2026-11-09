@@ -59,6 +59,7 @@ export interface PickableUser {
   avatar: string | null;
   /** `password-pin` is sent as `<password>/<pin>`. */
   needs: 'pin' | 'password' | 'password-pin' | null;
+  hidden?: boolean;
 }
 
 export interface WebActivity {
