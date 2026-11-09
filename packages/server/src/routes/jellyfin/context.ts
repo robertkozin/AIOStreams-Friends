@@ -670,6 +670,14 @@ function resolveRootMount(): {
   return { uuid: value.slice(0, at), encryptedPassword: value.slice(at + 1) };
 }
 
+/** The site root or the bare `/jellyfin`, while a root configuration is set. */
+export function isRootAddress(req: Request): boolean {
+  return (
+    !!process.env.JELLYFIN_ROOT_CONFIGURATION &&
+    /^(\/jellyfin)?$/i.test(req.baseUrl)
+  );
+}
+
 export const jellyfinContext: RequestHandler = async (req, res, next) => {
   try {
     const params = req.params as Record<string, string | undefined>;
@@ -710,7 +718,7 @@ export const jellyfinContext: RequestHandler = async (req, res, next) => {
         return;
       }
       req.jfMount = target;
-    } else if (req.baseUrl === '') {
+    } else if (isRootAddress(req)) {
       // Without one the root is the bare `/jellyfin` address.
       const target = resolveRootMount();
       if (target) req.jfMount = target;
@@ -718,6 +726,7 @@ export const jellyfinContext: RequestHandler = async (req, res, next) => {
     if (
       payload &&
       (!req.jfMount ||
+        isRootAddress(req) ||
         payload.u.toLowerCase() === req.jfMount.uuid.toLowerCase())
     ) {
       uuid = payload.u;

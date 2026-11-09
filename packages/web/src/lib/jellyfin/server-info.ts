@@ -27,7 +27,7 @@ export interface ServerInfo extends Branding {
   pinSignIn: boolean;
   /** A user's own sign-in address, which signs in that user alone. */
   personal: boolean;
-  /** Jellyfin on the site root, which this fork signs in to with a PIN. */
+  /** Jellyfin on the site root or bare `/jellyfin`, which this fork signs in to with a PIN. */
   root: boolean;
   /** Each extension it implements, with its version. */
   features: Partial<Record<Feature, number>>;
@@ -111,7 +111,7 @@ export function useServerInfoQuery(client: JellyfinClient) {
         configureUrl: data.aiostreams?.configureUrl ?? null,
         pinSignIn: data.aiostreams?.pinSignIn ?? false,
         personal: data.aiostreams?.personal ?? false,
-        root: new URL(client.base).pathname.replace(/\/$/, '') === '',
+        root: /^(\/jellyfin)?\/?$/i.test(new URL(client.base).pathname),
         features: data.aiostreams?.features ?? {},
         stock: !data.aiostreams,
         version: buildVersion(data.aiostreams?.version),
