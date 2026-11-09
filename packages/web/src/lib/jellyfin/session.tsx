@@ -189,7 +189,10 @@ export function useSessionPhase(base: string) {
       if (!users) return adopt(proof, signedIn!);
       const last = storage.get<string>(lastUserKey(base));
       const target =
-        users.length === 1 ? users[0] : users.find((u) => u.user.Id === last);
+        users.length === 1
+          ? users[0]
+          : (users.find((u) => u.user.Id === last) ??
+            users.find((u) => u.hidden && u.user.Id === signedIn?.User?.Id));
       if (target && signedIn && signedIn.User?.Id === target.user.Id) {
         adopt(proof, signedIn);
       } else if (

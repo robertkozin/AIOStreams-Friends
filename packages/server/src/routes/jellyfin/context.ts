@@ -299,6 +299,15 @@ export function personasOf(userData: UserData): JellyfinPersona[] {
   return userData.jellyfin?.personas ?? [];
 }
 
+/** Personas only: the primary user holds every persona, so it belongs to none. */
+export function sameHousehold(
+  a: JellyfinPersona | null,
+  b: JellyfinPersona | null
+): boolean {
+  const household = a?.household?.toLowerCase();
+  return !!household && household === b?.household?.toLowerCase();
+}
+
 export function personaById(
   userData: UserData,
   id: string

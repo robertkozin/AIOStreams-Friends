@@ -41,6 +41,7 @@ import {
   lockTag,
   userUnlocks,
   personasOf,
+  sameHousehold,
   isRootAddress,
   watchScopeOf,
   qs,
@@ -342,13 +343,14 @@ function isHidden(userData: Faced, user: JellyfinPersona | null): boolean {
   return !!(user ? user.hidden : userData.jellyfin?.primary?.hidden);
 }
 
-/** A list shows its caller and the users not hidden; a hidden persona sees only itself. */
+/** A list shows its caller, its household and the users not hidden; a hidden persona sees no one else. */
 export function listedFor(
   userData: Faced,
   caller: JellyfinPersona | null,
   user: JellyfinPersona | null
 ): boolean {
   if ((caller?.id ?? '') === (user?.id ?? '')) return true;
+  if (sameHousehold(caller, user)) return true;
   return !caller?.hidden && !isHidden(userData, user);
 }
 
@@ -366,14 +368,20 @@ function allUsers(
     .map((p) => userDto(uuid, userData, p, opts));
 }
 
-/** A personal address lists its own user, any other picker everyone not hidden. */
+/** A personal address lists its own user and their household, any other picker everyone not hidden. */
 export function pickerListed(
   mount: PickerMount,
   userData: UserData
 ): (JellyfinPersona | null)[] {
-  return mount.persona
-    ? personasOf(userData).filter((p) => p.id === mount.persona && p.hidden)
-    : [null, ...personasOf(userData)].filter((p) => !isHidden(userData, p));
+  if (!mount.persona)
+    return [null, ...personasOf(userData)].filter(
+      (p) => !isHidden(userData, p)
+    );
+  const owner = personaById(userData, mount.persona);
+  if (!owner?.hidden) return [];
+  return personasOf(userData).filter(
+    (p) => p.id === owner.id || sameHousehold(owner, p)
+  );
 }
 
 /**
@@ -468,7 +476,7 @@ interface PickerTarget {
   persona: JellyfinPersona;
 }
 
-/** The persona a picker sign-in names. A personal address takes only its own user's name, or none. */
+/** The persona a picker sign-in names. A personal address takes only its household's names, or none. */
 async function pickerTarget(
   mount: PickerMount,
   name: string
@@ -482,10 +490,15 @@ async function pickerTarget(
   const persona = personaById(userData, mount.persona);
   if (!persona?.hidden) return null;
   const wanted = name.trim().toLowerCase();
-  return !wanted ||
+  if (
+    !wanted ||
     wanted === persona.id ||
     wanted === persona.name.trim().toLowerCase()
-    ? { userData, persona }
+  )
+    return { userData, persona };
+  const mate = personaByName(userData, name);
+  return mate && sameHousehold(persona, mate)
+    ? { userData, persona: mate }
     : null;
 }
 
