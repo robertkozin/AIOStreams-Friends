@@ -36,6 +36,7 @@ import {
   PIN_REQUIRED,
   lockTag,
   userUnlocks,
+  sameHousehold,
   isRootAddress,
   watchScopeOf,
   qs,
@@ -254,9 +255,10 @@ export async function authenticationResult(
   };
 }
 
-/** A hidden profile sees only itself; a hidden owner is only off the picker. */
+/** A hidden profile sees only itself and its household; a hidden owner is only off the picker. */
 export function listedFor(caller: Profile, profile: Profile): boolean {
   if (caller.id === profile.id) return true;
+  if (sameHousehold(caller, profile)) return true;
   return (isOwner(caller) || !caller.hidden) && !profile.hidden;
 }
 
@@ -272,15 +274,16 @@ function allUsers(
     .map((p) => userDto(uuid, userData, p, opts));
 }
 
-/** A personal address lists its own profile, any other picker everyone not hidden. */
+/** A personal address lists its own profile and its household, any other picker everyone not hidden. */
 export function pickerListed(
   mount: PickerMount,
   userData: UserData
 ): Profile[] {
-  return profilesOf(userData).filter((p) =>
-    mount.profile
-      ? p.id === mount.profile && !isOwner(p) && p.hidden
-      : !p.hidden
+  if (!mount.profile) return profilesOf(userData).filter((p) => !p.hidden);
+  const own = profileById(userData, mount.profile);
+  if (!own || isOwner(own) || !own.hidden) return [];
+  return profilesOf(userData).filter(
+    (p) => p.id === own.id || sameHousehold(own, p)
   );
 }
 
@@ -374,7 +377,7 @@ interface PickerTarget {
   profile: Profile;
 }
 
-/** A personal address takes only its own profile's name, or none. */
+/** A personal address takes only its household's names, or none. */
 async function pickerTarget(
   mount: PickerMount,
   name: string
@@ -388,10 +391,15 @@ async function pickerTarget(
   const profile = profileById(userData, mount.profile);
   if (!profile || isOwner(profile) || !profile.hidden) return null;
   const wanted = name.trim().toLowerCase();
-  return !wanted ||
+  if (
+    !wanted ||
     wanted === profile.id ||
     wanted === profile.name?.trim().toLowerCase()
-    ? { userData, profile }
+  )
+    return { userData, profile };
+  const mate = profileByName(userData, name);
+  return mate && sameHousehold(profile, mate)
+    ? { userData, profile: mate }
     : null;
 }
 

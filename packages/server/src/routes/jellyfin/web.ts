@@ -27,6 +27,7 @@ import {
   bodyOf,
   jf,
   userUnlocks,
+  sameHousehold,
   watchScopeOf,
   qi,
   qs,
@@ -113,8 +114,12 @@ function secretFor(ctx: JellyfinRequestContext, user: WebUser): Secret | null {
   // A PIN is asked on every switch, to the signed-in user too, or handing over
   // a signed-in device would hand over the owner.
   if (user.profile.id === ctx.profile.id) return locked ? 'pin' : null;
-  // A profile's session may have begun with its PIN alone.
-  if (!provedPassword(ctx) && (isOwner(user.profile) || !locked)) {
+  // A profile's session may have begun with its PIN alone; its household is open to it.
+  if (
+    !provedPassword(ctx) &&
+    (isOwner(user.profile) || !locked) &&
+    !sameHousehold(ctx.profile, user.profile)
+  ) {
     return locked ? 'password-pin' : 'password';
   }
   return locked ? 'pin' : null;

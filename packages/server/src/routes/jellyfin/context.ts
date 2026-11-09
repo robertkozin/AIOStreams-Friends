@@ -294,6 +294,13 @@ export function watchScopeOf(uuid: string, profile: Profile): WatchScope {
     : { uuid, profile: profile.id };
 }
 
+/** Profiles other than the owner only: the owner holds every profile, so it belongs to none. */
+export function sameHousehold(a: Profile | null, b: Profile | null): boolean {
+  if (!a || !b || isOwner(a) || isOwner(b)) return false;
+  const household = a.household?.toLowerCase();
+  return !!household && household === b.household?.toLowerCase();
+}
+
 /** What a client types or posts back for a profile other than the owner: its id or name. */
 export function profileByName(
   userData: UserData,

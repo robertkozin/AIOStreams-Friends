@@ -86,8 +86,8 @@ function PersonalAddress({
         onFocus={(e) => e.currentTarget.select()}
         help={
           pinSignIn
-            ? 'Signs in this profile alone, with its PIN. Works once you save, and a new address turns this one off.'
-            : 'Signs in this profile alone. This instance asks for your password there, so approve their devices with Quick Connect instead. Works once you save, and a new address turns this one off.'
+            ? 'Signs in this profile and its household, each with its own PIN. Works once you save, and a new address turns this one off.'
+            : 'Signs in this profile and its household. This instance asks for your password there, so approve their devices with Quick Connect instead. Works once you save, and a new address turns this one off.'
         }
       />
       <div className="flex flex-wrap gap-2">
@@ -126,6 +126,35 @@ function idFor(name: string, existing: Profile[]): string {
 
 const sameName = (a: string, b: string) =>
   a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Picks from the households in use, so a typo doesn't start a second one. */
+function HouseholdField({
+  value,
+  households,
+  onChange,
+}: {
+  value: string | undefined;
+  households: string[];
+  onChange: (value: string | undefined) => void;
+}) {
+  return (
+    <>
+      <TextInput
+        label="Household"
+        help="Profiles with the same household see each other and can switch between them, and a shared TV can use any member's address."
+        list="jellyfin-households"
+        maxLength={32}
+        value={value ?? ''}
+        onValueChange={(next) => onChange(next || undefined)}
+      />
+      <datalist id="jellyfin-households">
+        {households.map((household) => (
+          <option key={household} value={household} />
+        ))}
+      </datalist>
+    </>
+  );
+}
 
 function variantsLabel(ids: string[] | undefined): string {
   return ids?.length ? `Variants ${ids.join(', ')}` : 'Base config';
@@ -521,13 +550,25 @@ export function ProfileList({
     setUserData((prev) => ({ ...prev, profiles: stored(next) }));
 
   const rows = useSortableRows(others, (next) => write([owner, ...next]));
+  const households = [
+    ...new Map(
+      others.flatMap((profile) =>
+        profile.household
+          ? [[profile.household.toLowerCase(), profile.household] as const]
+          : []
+      )
+    ).values(),
+  ];
 
   const openAdd = () => {
     if (others.length >= maxProfiles) {
       toast.error(`At most ${maxProfiles} profiles besides the owner.`);
       return;
     }
-    setDraft({ id: null, value: { id: '', name: '' } });
+    setDraft({
+      id: null,
+      value: { id: '', name: '', hidden: true, address: newAddress() },
+    });
   };
 
   const openEdit = (profile: Profile) =>
@@ -618,6 +659,7 @@ export function ProfileList({
         ? {}
         : {
             history: value.history === 'shared' ? 'shared' : undefined,
+            household: value.household?.trim() || undefined,
             address: value.hidden ? (value.address ?? newAddress()) : undefined,
           }),
     };
@@ -679,6 +721,7 @@ export function ProfileList({
             ? `tracker id ${profile.id}`
             : null,
           profile.hidden ? 'kept separate' : null,
+          profile.household ? `household ${profile.household}` : null,
           profile.lock ? 'PIN' : null,
         ]
     )
@@ -839,7 +882,7 @@ export function ProfileList({
               <>
                 <Switch
                   label="Keep separate from other profiles"
-                  help="Left off the sign-in picker and other profiles' lists, and sees no one else. Signs in on an address of its own."
+                  help="Left off the sign-in picker and other profiles' lists, and sees no one outside its household. Signs in on an address of its own."
                   side="right"
                   value={value.hidden ?? false}
                   onValueChange={(hidden) =>
@@ -856,6 +899,11 @@ export function ProfileList({
                     onRenew={() => set({ address: newAddress() })}
                   />
                 )}
+                <HouseholdField
+                  value={value.household}
+                  households={households}
+                  onChange={(household) => set({ household })}
+                />
               </>
             )}
 

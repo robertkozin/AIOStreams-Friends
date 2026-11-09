@@ -144,6 +144,8 @@ const ProfileSchema = z.object({
   trackers: z.array(z.string().min(1)).max(50).optional(),
   /** Kept out of the picker and apart from the other profiles; still usable by name. */
   hidden: z.boolean().optional(),
+  /** Profiles with the same household see each other, even when hidden. */
+  household: z.string().trim().min(1).max(32).optional(),
   /** The code of a hidden profile's own sign-in address, `/jellyfin/p/<address>`. */
   address: z
     .string()
