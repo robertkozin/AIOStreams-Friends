@@ -36,6 +36,7 @@ import {
   PIN_REQUIRED,
   lockTag,
   userUnlocks,
+  isRootAddress,
   watchScopeOf,
   qs,
   resolveConfig,
@@ -357,6 +358,17 @@ function parseSignIn(
 
 type PickerMount = NonNullable<Request['jfMount']>;
 
+/** The root configuration takes its own users' names; any other name signs in as usual. */
+async function signInMount(
+  req: Request,
+  username: string
+): Promise<PickerMount | undefined> {
+  const mount = req.jfMount;
+  if (!mount || !isRootAddress(req)) return mount;
+  const root = await resolveConfig(mount.uuid, mount.encryptedPassword);
+  return root && resolveSignIn(root, username) ? mount : undefined;
+}
+
 interface PickerTarget {
   userData: UserData;
   profile: Profile;
@@ -406,7 +418,7 @@ router.post(
     const pw = String(
       body.Pw ?? body.pw ?? body.Password ?? body.password ?? ''
     );
-    const mount = req.jfMount;
+    const mount = await signInMount(req, username);
 
     const named = parseSignIn(username, mount);
     if (!named) {
