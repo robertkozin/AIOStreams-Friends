@@ -191,6 +191,7 @@ class StreamParser {
     );
     parsedStream.library = this.getInLibrary(stream, parsedStream);
     parsedStream.age = this.getAge(stream, parsedStream);
+    parsedStream.grabs = this.getGrabs(stream);
     parsedStream.bitrate = this.getBitrate(stream, parsedStream);
     parsedStream.message = this.getMessage(stream, parsedStream);
 
@@ -416,6 +417,12 @@ class StreamParser {
     }
 
     return undefined;
+  }
+
+  protected getGrabs(stream: Stream): number | undefined {
+    return typeof stream.grabs === 'number' && stream.grabs >= 0
+      ? stream.grabs
+      : undefined;
   }
 
   protected getAge(

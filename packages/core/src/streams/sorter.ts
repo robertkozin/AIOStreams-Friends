@@ -167,6 +167,8 @@ class StreamSorter {
           return multiplier * (stream.torrent?.private ? 1 : 0);
         case 'age':
           return multiplier * (stream.age ?? 0);
+        case 'grabPopularity':
+          return multiplier * (stream.grabPopularity ?? 0);
         case 'encode': {
           if (!userData.preferredEncodes) {
             return 0;

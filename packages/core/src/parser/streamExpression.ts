@@ -15,6 +15,7 @@ import { ExpressionContext } from '../streams/context.js';
 import { formRegexFromKeywordsSync } from '../utils/regex.js';
 import { ObjectFilter, compileObjectFilter } from '../utils/object-filter.js';
 import { describedTracks } from '../utils/media-info.js';
+import { grabsInRange } from '../streams/grabs.js';
 
 const logger = createLogger('stream-expression');
 
@@ -435,6 +436,10 @@ export abstract class StreamExpressionEngine {
             return stream.duration;
           case 'seeders':
             return stream.torrent?.seeders;
+          case 'grabs':
+            return stream.grabs;
+          case 'grabPopularity':
+            return stream.grabPopularity;
           case 'seScore':
             return stream.streamExpressionScore;
           case 'regexScore':
@@ -982,6 +987,9 @@ export abstract class StreamExpressionEngine {
         return true;
       });
     };
+
+    this.parser.functions.grabs = grabsInRange('grabs');
+    this.parser.functions.grabPopularity = grabsInRange('grabPopularity');
 
     this.parser.functions.age = function (
       streams: ParsedStream[],
