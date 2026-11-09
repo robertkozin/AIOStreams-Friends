@@ -1307,6 +1307,7 @@ const SORT_CRITERIA = [
   'seadex',
   'bitrate',
   'releaseGroup',
+  'grabPopularity',
 ] as const;
 
 export const MIN_SIZE = 0;
@@ -1509,6 +1510,14 @@ export const SORT_CRITERIA_DETAILS: Record<
     ascendingDescription: 'Streams that are not listed on SeaDex are preferred',
     descendingDescription:
       'Streams that are marked as the Best release on SeaDex are preferred, followed by the Alternative release',
+  },
+  grabPopularity: {
+    name: 'Grab Popularity',
+    defaultDirection: 'desc',
+    description:
+      'Sort by how popular a release is on its indexer, from its grabs and age',
+    ascendingDescription: 'Less popular streams are preferred',
+    descendingDescription: 'More popular streams are preferred',
   },
   bitrate: {
     name: 'Bitrate (Estimate)',

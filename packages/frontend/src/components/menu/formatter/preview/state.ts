@@ -30,6 +30,8 @@ export interface PreviewInput {
   manifestUrl: string;
   indexer: string;
   seeders?: number;
+  grabs?: number;
+  grabPopularity?: number;
   age: string;
   /** milliseconds */
   duration?: number;
@@ -140,6 +142,8 @@ export const DEFAULT_PREVIEW_INPUT: PreviewInput = {
   manifestUrl: 'http://localhost:2000/manifest.json',
   indexer: 'RARBG',
   seeders: 125,
+  grabs: 340,
+  grabPopularity: 0.42,
   age: '10d',
   duration: 9120000,
   size: 62500000000,
@@ -179,6 +183,8 @@ const STREAM_FIELDS = [
   'stream.type',
   'stream.indexer',
   'stream.seeders',
+  'stream.grabs',
+  'stream.grabPopularity',
   'stream.age',
   'stream.ageHours',
   'stream.duration',
@@ -508,6 +514,8 @@ export function buildParsedStream(input: PreviewInput): ParsedStream {
     folderName: input.folderName,
     folderSize: input.folderSize,
     indexer: input.indexer,
+    grabs: input.grabs,
+    grabPopularity: input.grabPopularity,
     regexMatched: { name: input.regexMatched || undefined, index: 0 },
     torrent: {
       infoHash: input.type === 'p2p' ? input.infoHash || undefined : undefined,

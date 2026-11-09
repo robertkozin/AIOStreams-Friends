@@ -76,6 +76,22 @@ export function StreamTab({
           onChange={(seeders) => patch({ seeders })}
           min={0}
         />
+        <NumberField
+          field="stream.grabs"
+          label="Grabs"
+          value={input.grabs}
+          onChange={(grabs) => patch({ grabs })}
+          min={0}
+        />
+        <NumberField
+          field="stream.grabPopularity"
+          label="Grab Popularity"
+          value={input.grabPopularity}
+          onChange={(grabPopularity) => patch({ grabPopularity })}
+          min={0}
+          max={1}
+          step={0.05}
+        />
         <TextField
           field={['stream.age', 'stream.ageHours']}
           label="Age"

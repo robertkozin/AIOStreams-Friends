@@ -75,7 +75,7 @@ const TORZNAB_PROFILE: NabScanProfile = {
   ]),
 };
 
-const NEWZNAB_PROFILE: NabScanProfile = {
+export const NEWZNAB_PROFILE: NabScanProfile = {
   attrElement: 'newznab:attr',
   fields: new Set<NabTextField>(['title', 'comments', 'pubDate', 'size']),
   indexers: new Set(['prowlarrindexer'] as const),
@@ -89,6 +89,7 @@ const NEWZNAB_PROFILE: NabScanProfile = {
     ['hydraIndexerName', 'string'],
     ['poster', 'string'],
     ['size', 'number'],
+    ['grabs', 'number'],
   ]),
 };
 
@@ -272,8 +273,8 @@ export class BaseNabApi<N extends NabNamespace> {
     }
     this.profile = namespace === 'torznab' ? TORZNAB_PROFILE : NEWZNAB_PROFILE;
     this.capabilitiesCache = Cache.getInstance(`${namespace}:api:caps`);
-    // v3: the cached item shape is now the scanner's projection.
-    this.searchCache = Cache.getInstance(`${namespace}:api:search:v3`);
+    // v4: the projection gained `grabs`.
+    this.searchCache = Cache.getInstance(`${namespace}:api:search:v4`);
     this.userAgent =
       appConfig.builtins.nab.userAgent ?? appConfig.http.defaultUserAgent;
     this.httpProxy =

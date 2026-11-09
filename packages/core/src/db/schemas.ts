@@ -1490,6 +1490,10 @@ export const ParsedStreamSchema = z.object({
   indexer: z.string().optional(),
   /**Age in hours since upload */
   age: z.number().optional(),
+  /** Times the indexer has served this release */
+  grabs: z.number().optional(),
+  /** 0 to 1: grabs per square root of age in days, against the same indexer's best */
+  grabPopularity: z.number().optional(),
   torrent: z
     .object({
       infoHash: z.string().min(1).optional(),
