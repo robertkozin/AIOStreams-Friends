@@ -209,6 +209,8 @@ export const PLAYER_ENGINES = [
   'exoplayer',
   'webgpu',
   'browser',
+  // This fork's: the server's HLS remux first.
+  'hls',
 ] as const;
 export type PlayerEngine = (typeof PLAYER_ENGINES)[number];
 /** A browser's picture-in-picture: a window with the player in it, or its own of the video alone. */

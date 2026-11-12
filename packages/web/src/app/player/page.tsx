@@ -50,7 +50,6 @@ import {
 import { usePlayer } from '@/lib/playback/use-player';
 import type { EngineFactory, StatsRow } from '@/lib/playback/engine';
 import { videoEngine } from '@/lib/playback/video';
-import { playsWithWebGpu } from '@/lib/playback/player-choice';
 import { webGpuEngine } from '@/lib/playback/webgpu';
 import {
   transcodes,
@@ -63,6 +62,11 @@ import { useNowPlaying } from '@/lib/playback/now-playing';
 import { usePlayingAnime } from '@/lib/playback/upscaling';
 import { hlsEngine } from '@/lib/playback/hls';
 import { withPartyStats } from '@/lib/party/stats';
+import {
+  engineOrder,
+  takeHandOff,
+  type EngineId,
+} from '@/lib/playback/play-in';
 import {
   useShowPicks,
   useShowTrackPicks,
@@ -190,12 +194,16 @@ export const OBJECT_FIT: Record<VideoFit, string> = {
   stretch: 'object-fill',
 };
 
+/** In the order the Engine setting starts them (see `engineOrder`). */
 function pageEngines(
   video: React.RefObject<HTMLVideoElement | null>
 ): EngineFactory[] {
-  // The server's HLS remux before the file, where WebGPU can't play it.
-  const own = [hlsEngine(video), videoEngine(video)];
-  return playsWithWebGpu() ? [webGpuEngine(video), ...own] : own;
+  const make: Record<EngineId, () => EngineFactory> = {
+    webgpu: () => webGpuEngine(video),
+    hls: () => hlsEngine(video),
+    browser: () => videoEngine(video),
+  };
+  return engineOrder().map((id) => make[id]());
 }
 
 export function PlayerPage({
@@ -344,7 +352,13 @@ export function PlayerPage({
         />
       )}
       {playing ? (
-        <VersionPickerProvider>
+        // Another app picked over the player leaves it once its prompt closes.
+        <VersionPickerProvider
+          onExternalDone={() =>
+            takeHandOff() &&
+            (mini ? closePlayback() : stopPlayback(to.item(itemId)))
+          }
+        >
           <Player
             key={restart?.n}
             {...playing}
@@ -409,6 +423,10 @@ function useSwitchVersion(
       startMs: player.playhead.positionMs,
       playing: source.Id ?? undefined,
       playlist,
+      here: {
+        pause: () => player.setPaused(true),
+        positionMs: () => player.playhead.positionMs,
+      },
     });
 }
 
