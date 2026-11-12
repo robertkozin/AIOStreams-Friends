@@ -7,6 +7,8 @@ run = "pnpm install"
 
 [tasks.dev]
 run = "pnpm dev"
+# The web dev server (:21459) proxies to the local server; its own default is :3001.
+env = { PUBLIC_BACKEND_BASE_URL = "http://localhost:3000" }
 
 [tasks.web]
 description = "Web app dev against $PUBLIC_BACKEND_BASE_URL"
