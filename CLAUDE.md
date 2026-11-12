@@ -90,7 +90,7 @@ A fork that regularly merges upstream AIOStreams. Kept in this one section so me
 - Keep fork changes in new files where possible, and keep edits to upstream files small. Don't hand-edit upstream docs (`packages/docs/content/...`) or translation catalogs, and don't let Prettier reformat untouched parts of shared files.
 - Fork strings in `packages/web` are plain literals inside an `eslint-disable lingui/no-unlocalized-strings` block, not `t`. Don't run `i18n:extract`.
 - Work on `main` in the main checkout, uncommitted, unless asked to commit. No feature branches or worktrees.
-- Fork-owned: `packages/mkv-remuxer`, `packages/core/src/hls`, `packages/server/src/routes/api/hls.ts`, `packages/server/src/routes/jellyfin/hls*.ts`, `packages/web/src/lib/playback/hls.ts` and `cast.ts`. Upstream files the fork also touches include web's `controller.ts` and `pages/player.tsx`.
+- Fork-owned: `packages/mkv-remuxer`, `packages/core/src/hls`, `packages/server/src/routes/api/hls.ts`, `packages/server/src/routes/jellyfin/hls*.ts`, `packages/web/src/lib/playback/hls.ts` and `cast.ts`. Upstream files the fork also touches include web's `controller.ts`, `use-player.ts`, `video.ts` (fullscreen only) and `app/player/page.tsx`.
 
 ### Tooling
 
@@ -103,7 +103,7 @@ A fork that regularly merges upstream AIOStreams. Kept in this one section so me
 ### HLS remux (browser and TV playback without an app)
 
 - Native usenet MKV streams are remuxed on demand to HLS (fMP4 + WebVTT) by `packages/mkv-remuxer`, vendored from FPNDev/mkv-remuxer (see its `VENDORED.md`) and consumed through its `dist`, so run `pnpm -F mkv-remuxer build` (or `mise run check`) before core sees a change to it.
-- Path: `core/src/hls/remux.ts` (`serveHls`) → `/api/v1/hls/:token/*`. Jellyfin offers the remux as a version's `TranscodingUrl` (`routes/jellyfin/hls.ts`), and `hls-master.ts` redirects to the master with `?audio=<n>` (`withDefaultAudio`: the n-th audio rendition becomes the default). The web player (`web/src/lib/playback/hls.ts`) plays it with native HLS or hls.js and casts it through the Cast SDK (`cast.ts`).
+- Path: `core/src/hls/remux.ts` (`serveHls`) → `/api/v1/hls/:token/*`. Jellyfin offers the remux as a version's `TranscodingUrl` (`routes/jellyfin/hls.ts`), and `hls-master.ts` redirects to the master with `?audio=<n>` (`withDefaultAudio`: the n-th audio rendition becomes the default). The web player's `hlsEngine` (`web/src/lib/playback/hls.ts`) plays it with native HLS or hls.js and casts it through the Cast SDK (`cast.ts`). Its place in the engine chain follows upstream's Engine setting, to which the fork adds `hls` (`engineOrder` in `web/src/lib/playback/play-in.ts`): Automatic is WebGPU → HLS → upstream's `videoEngine`, which plays any version with no remux or a remux that fails. The versions list's Play in dropdown (`features/versions/play-in-select.tsx`) sets that setting and upstream's player choice in one.
 - One variant, one audio group: AAC, MP3, Opus and FLAC are copied; everything else (AC-3, E-AC-3, DTS, TrueHD…) is transcoded to AAC. Per-client audio passthrough was tried and removed as not worth the negotiation it needs. Dolby Vision profiles 5 and 8 are described in the playlist (`dvh1` / `SUPPLEMENTAL-CODECS`), and every audio language is kept.
 - Bump `CACHE_VERSION` in `mkv-remuxer/src/hls/hls-service.ts` when renditions or playlists change (it clears cached masters on start), and `MEDIA_INDEX_VERSION` in `media/media-index.ts` when the index's fields change.
 
