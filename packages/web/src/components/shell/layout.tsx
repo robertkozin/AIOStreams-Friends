@@ -468,7 +468,7 @@ export function WebLayout() {
       {playing && <Outlet />}
       {playback && (
         <PlayerPage
-          key={`${playback.itemId}|${playback.sourceId}|${playback.playlist ?? ''}`}
+          key={`${playback.itemId}|${playback.sourceId}|${playback.playlist ?? ''}|${playback.restart ?? 0}`}
           itemId={playback.itemId}
           sourceId={playback.sourceId}
           startMs={playback.startMs}

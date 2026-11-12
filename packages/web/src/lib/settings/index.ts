@@ -189,6 +189,8 @@ export const PLAYER_ENGINES = [
   'exoplayer',
   'webgpu',
   'browser',
+  // This fork's: the server's HLS remux first.
+  'hls',
 ] as const;
 export type PlayerEngine = (typeof PLAYER_ENGINES)[number];
 /** What Back does in the player: stop, or play on in the mini player. */

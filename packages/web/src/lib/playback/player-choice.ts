@@ -3,6 +3,7 @@ import { currentHost } from '@/lib/hosts';
 import { settings } from '@/lib/settings';
 import { storage } from '@/lib/storage';
 import { appBridge } from '@/lib/hosts/shell/bridge';
+import { FORK_LINK_PLAYERS } from './fork-players';
 
 type Platform = 'ios' | 'android' | 'macos';
 
@@ -28,6 +29,7 @@ export const LINK_PLAYERS: readonly {
   template: string;
   platforms: readonly Platform[];
 }[] = [
+  ...FORK_LINK_PLAYERS,
   {
     id: 'vlc',
     name: 'VLC',

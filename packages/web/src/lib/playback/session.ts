@@ -14,7 +14,9 @@ export interface Playback {
 }
 
 /** `docked` when it plays in a page's preview, which Back from the player returns to. */
-let current: (Playback & { mini: boolean; docked?: boolean }) | null = null;
+let current:
+  (Playback & { mini: boolean; docked?: boolean; restart?: number }) | null =
+  null;
 /** A channel zapped to in the player keeps the preview Back returns to. */
 let zapping = false;
 /** What leaving the player's page does, when the player itself chose. */
@@ -116,6 +118,12 @@ export function expandPlayback(): void {
 export function listVersionsFromPlayer(path: string): void {
   if (onPlayerPage()) navigate(path, { replace: true });
   else closePlayback();
+}
+
+/** The same title again from `startMs`, in a new player that takes the settings as they are now. */
+export function restartPlayback(startMs: number): void {
+  if (current)
+    set({ ...current, startMs, restart: (current.restart ?? 0) + 1 });
 }
 
 /** Plays in the page's preview; the title already there opens full screen. */

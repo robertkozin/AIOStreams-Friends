@@ -40,7 +40,12 @@ interface PickerValue {
   /** Lists the item's versions; nothing is resolved until this is called. */
   open(
     item: BaseItemDto,
-    opts?: { startMs?: number; playing?: string; playlist?: string }
+    opts?: {
+      startMs?: number;
+      playing?: string;
+      playlist?: string;
+      here?: Request['here'];
+    }
   ): void;
   /**
    * What Play does (see `useStraightPlay`); a hold does the other. A `version`
@@ -146,8 +151,10 @@ export function useVersionPicker(): PickerValue {
 
 export function VersionPickerProvider({
   children,
+  onExternalDone,
 }: {
   children: React.ReactNode;
+  onExternalDone?: () => void;
 }) {
   const [request, setRequest] = React.useState<Request | null>(null);
   const shown = React.useRef(request);
@@ -279,6 +286,7 @@ export function VersionPickerProvider({
             startMs: opts?.startMs ?? 0,
             playing: opts?.playing,
             playlist: opts?.playlist,
+            here: opts?.here,
           })
         ),
       play: (item, opts) => {
@@ -391,7 +399,13 @@ export function VersionPickerProvider({
           {versions}
         </Modal>
       )}
-      <ExternalPrompt item={external} onClose={() => setExternal(null)} />
+      <ExternalPrompt
+        item={external}
+        onClose={() => {
+          setExternal(null);
+          onExternalDone?.();
+        }}
+      />
       <UnairedQuestion asking={unaired} onClose={() => setUnaired(null)} />
     </PickerContext.Provider>
   );

@@ -57,6 +57,7 @@ import { compileQuery, versionText } from '@/lib/versions';
 import { matchBadges } from '@/lib/badges';
 import { CachedImage } from '@/components/cached-image';
 import { BadgeChip, useBadges } from './version-badges';
+import { PlayInSelect } from './play-in-select';
 
 export interface Request {
   item: BaseItemDto;
@@ -68,6 +69,8 @@ export interface Request {
   download?: { items: BaseItemDto[]; replace?: Download };
   /** The playlist a pick plays on through. */
   playlist?: string;
+  /** From the player: pauses it, and where it is now. */
+  here?: { pause(): void; positionMs(): number };
 }
 
 const FILTER_FROM = 8;
@@ -352,6 +355,15 @@ export function Versions({
     </div>
   );
 
+  const playIn = !download && (
+    <PlayInSelect
+      request={request}
+      sources={sources}
+      onDone={onDone}
+      onExternal={onExternal}
+    />
+  );
+
   return (
     <>
       {art && !compact && (
@@ -399,6 +411,7 @@ export function Versions({
           {quickRow}
           {downloadHint}
           {resumeToggle}
+          {playIn}
         </div>
       ) : (
         <div
@@ -430,6 +443,7 @@ export function Versions({
           </div>
           {downloadHint}
           {resumeToggle}
+          {playIn}
           {filtering && (
             <TextInput
               data-ui="versions-filter"

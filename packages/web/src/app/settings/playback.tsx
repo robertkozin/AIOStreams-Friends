@@ -461,6 +461,8 @@ const engineOptions = (): { value: PlayerEngine; label: string }[] => [
 const browserEngineOptions = (): { value: PlayerEngine; label: string }[] => [
   { value: 'webgpu', label: 'WebGPU' },
   { value: 'browser', label: t`This browser` },
+  // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's engine, English only
+  { value: 'hls', label: 'HLS remux' },
 ];
 
 const engineHelp = (engine: PlayerEngine) =>
@@ -470,6 +472,8 @@ const engineHelp = (engine: PlayerEngine) =>
     exoplayer: t`Android's own player, which uses less battery: the screen shows the video as the device decodes it, at the video's frame rate. Plays video the device can decode. Styled subtitles look as they do in mpv.`,
     webgpu: t`Reads and decodes the file itself and draws it on the graphics card, so it also plays formats this browser can't, such as HEVC, Dolby Vision, AC-3, E-AC-3, TrueHD and DTS. A version it can't play goes to this browser's own player.`,
     browser: t`This browser's own player, which plays the formats this browser supports.`,
+    // eslint-disable-next-line lingui/no-unlocalized-strings -- this fork's engine, English only
+    hls: "The server's HLS remux of usenet versions in this browser's own player, which can cast it. Other versions go to WebGPU where this browser has it, else this browser's own player.",
   })[engine];
 
 const cacheOptions = () =>
@@ -521,7 +525,8 @@ function PlayerCard() {
   const [player, setPlayer] = useSetting(settings.player.choice);
   const [link, setLink] = useSetting(settings.player.link);
   const [engine, setEngine] = useSetting(settings.player.engine);
-  const browserEngine = engine === 'browser' ? engine : 'webgpu';
+  const browserEngine =
+    engine === 'browser' || engine === 'hls' ? engine : 'webgpu';
   const [cacheSize, setCacheSize] = useSetting(settings.player.cacheSize);
   const [back, setBack] = useSetting(settings.player.back);
   const [quality, setQuality] = useSetting(settings.player.quality);
