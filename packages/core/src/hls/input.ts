@@ -28,8 +28,8 @@ export function usenetStreamToken(url: string): string | undefined {
     : undefined;
 }
 
-/** The remuxer reads Matroska, which WebM also is. */
-const REMUXABLE = /\.(mkv|webm)$/i;
+/** The remuxer reads Matroska (WebM too), MP4 and QuickTime. */
+const REMUXABLE = /\.(mkv|mk3d|webm|mp4|m4v|mov)$/i;
 
 /**
  * The engine token of a stream URL whose file the remuxer can read, as a
