@@ -77,8 +77,8 @@ describe('codecString', () => {
     codecString(getRenditions(index([video, audio(2, codecId)])).audio[0]!);
 
   test('names copied audio by its own codec', () => {
-    expect(audioCodec('A_MPEG/L3')).toBe('mp4a.40.34');
-    expect(audioCodec('A_OPUS')).toBe('opus');
+    expect(audioCodec('A_MPEG/L3')).toBe('mp4a.6B');
+    expect(audioCodec('A_OPUS')).toBe('Opus');
     expect(audioCodec('A_FLAC')).toBe('fLaC');
     expect(audioCodec('A_AAC/MPEG4/LC/SBR')).toBe('mp4a.40.5');
   });

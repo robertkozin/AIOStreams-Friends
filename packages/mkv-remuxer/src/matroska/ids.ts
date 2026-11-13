@@ -30,6 +30,8 @@ export const Id = {
   Video: 0xe0,
   PixelWidth: 0xb0,
   PixelHeight: 0xba,
+  FlagInterlaced: 0x9a,
+  FieldOrder: 0x9d,
   Colour: 0x55b0,
   TransferCharacteristics: 0x55ba,
   BlockAdditionMapping: 0x41e4,
@@ -46,6 +48,7 @@ export const Id = {
   CueTrack: 0xf7,
   CueClusterPosition: 0xf1,
   CueRelativePosition: 0xf0,
+  CueDuration: 0xb2,
 
   Cluster: 0x1f43b675,
   Timestamp: 0xe7,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import { masterPlaylist } from '../src/hls/playlists.js';
-import { Remuxer } from '../src/hls/remux.js';
+import { createRemuxer } from '../src/hls/remux.js';
 import { silentLogger } from '../src/logger.js';
 import {
   encodeElement,
@@ -14,7 +14,10 @@ import {
 import { Id } from '../src/matroska/ids.js';
 import { parseTracks, type MkvTrack } from '../src/matroska/tracks.js';
 import { getRenditions } from '../src/media/codecs.js';
-import { buildMediaIndex, type MediaIndex } from '../src/media/media-index.js';
+import {
+  buildMediaIndex,
+  type MatroskaIndex as MediaIndex,
+} from '../src/media/media-index.js';
 import {
   ffmpeg,
   FFMPEG,
@@ -87,10 +90,11 @@ describe.skipIf(!hasFfmpeg)('Dolby Vision on a generated HDR10 file', () => {
   let file: string;
   let index: MediaIndex;
   let hdr10: MkvTrack;
-  const remuxer = new Remuxer({
+  const remuxer = createRemuxer({
     ffmpegPath: FFMPEG,
     timeoutMs: 30_000,
     audioReadFromKeyframe: false,
+    aacCoder: 'fast',
     logger: silentLogger,
   });
 
@@ -104,7 +108,11 @@ describe.skipIf(!hasFfmpeg)('Dolby Vision on a generated HDR10 file', () => {
       'log-level=error:keyint=48:min-keyint=48:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc',
       file,
     ]);
-    index = await buildMediaIndex(fileSource(file), 'hdr10.mkv', 2);
+    index = (await buildMediaIndex(
+      fileSource(file),
+      'hdr10.mkv',
+      2,
+    )) as MediaIndex;
     hdr10 = index.tracks.find((t) => t.number === index.videoTrack)!;
   }, 60_000);
 
@@ -121,7 +129,10 @@ describe.skipIf(!hasFfmpeg)('Dolby Vision on a generated HDR10 file', () => {
   /** The init segment ffmpeg writes for the index's video. */
   async function init(index: MediaIndex, name: string): Promise<Buffer> {
     const out = path.join(tmp.dir, `${name}-init.mp4`);
-    await remuxer.writeInit(index, getRenditions(index).video, out);
+    await remuxer.writeInit(
+      { index, rendition: getRenditions(index).video, sampleDir: tmp.dir },
+      out,
+    );
     return readFile(out);
   }
 
@@ -175,9 +186,12 @@ describe.skipIf(!hasFfmpeg)('Dolby Vision on a generated HDR10 file', () => {
     const rendition = getRenditions(dv).video;
     const initPath = path.join(tmp.dir, 'seg-init.mp4');
     const segment = path.join(tmp.dir, 'seg-1.m4s');
-    await remuxer.writeInit(dv, rendition, initPath);
+    await remuxer.writeInit(
+      { index: dv, rendition, sampleDir: tmp.dir },
+      initPath,
+    );
     await remuxer.writeSegment(
-      { index: dv, source: fileSource(file), rendition },
+      { index: dv, source: fileSource(file), rendition, sampleDir: tmp.dir },
       1,
       segment,
     );

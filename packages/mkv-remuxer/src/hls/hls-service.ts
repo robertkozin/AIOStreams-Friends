@@ -1,15 +1,22 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { CacheLayout } from '../cache/cache-layout.js';
+import { createCacheLayout, type CacheLayout } from '../cache/cache-layout.js';
 import {
-  DiskGuard,
+  createDiskGuard,
   type CacheUsage,
+  type DiskGuard,
   type HostStore,
 } from '../cache/disk-guard.js';
-import { InterleavingNotes } from '../cache/interleaving-notes.js';
-import { MetadataCache } from '../cache/metadata-cache.js';
-import { SegmentCache } from '../cache/segment-cache.js';
+import { createInterleavingNotes } from '../cache/interleaving-notes.js';
+import {
+  createMetadataCache,
+  type MetadataCache,
+} from '../cache/metadata-cache.js';
+import {
+  createSegmentCache,
+  type SegmentCache,
+} from '../cache/segment-cache.js';
 import { AbandonedError, MediaTimeoutError, NotFoundError } from '../errors.js';
 import type {
   SourceFile,
@@ -19,16 +26,20 @@ import type {
 import { errorMessage, silentLogger, type Logger } from '../logger.js';
 import { withTimeout } from '../util/async.js';
 import { exists } from '../util/fs.js';
-import { SingleFlight } from '../util/single-flight.js';
-import { Priority, TaskQueue } from '../util/task-queue.js';
-import type { Asset } from './asset.js';
-import { AssetRegistry, MATROSKA_FILE } from './asset-registry.js';
-import { FfmpegError, FfmpegSupervisor } from './ffmpeg.js';
+import { createSingleFlight } from '../util/single-flight.js';
+import {
+  createTaskQueue,
+  Priority,
+  type TaskQueue,
+} from '../util/task-queue.js';
+import type { Asset, MasterUriPrefix } from './asset.js';
+import { createAssetRegistry, MEDIA_FILE } from './asset-registry.js';
+import { checkFfmpeg } from './ffmpeg.js';
 import { renditionPath, segmentFileName } from './playlists.js';
-import { Remuxer } from './remux.js';
-import { WarmQueue } from './warm-queue.js';
+import { createRemuxer, type AacCoder, type Remuxer } from './remux.js';
+import { createWarmQueue } from './warm-queue.js';
 
-export interface HlsServiceOptions {
+export type HlsServiceOptions = {
   cacheDir: string;
   provider: SourceProvider;
   ffmpegPath?: string;
@@ -40,6 +51,9 @@ export interface HlsServiceOptions {
   maxConcurrentJobs?: number;
   jobTimeoutMs?: number;
   audioReadFromKeyframe?: boolean;
+  /** Ignored here: audio browsers can't play is always served as AAC. */
+  aacFallback?: boolean;
+  aacCoder?: AacCoder;
   segmentCacheBytes?: number;
   metadataCacheBytes?: number;
   cacheTotalBytes?: number;
@@ -60,53 +74,53 @@ export interface HlsServiceOptions {
    * through `resolve(sourceId, fileId, ['master.m3u8'])`. Set it when the
    * master is served from somewhere else.
    */
-  masterUriPrefix?: (sourceId: string, fileId: string) => string;
+  masterUriPrefix?: MasterUriPrefix;
   logger?: Logger;
-}
+};
 
-export interface ServedFile {
+export type ServedFile = {
   path: string;
   contentType: string;
   cacheControl: string;
   dropped?: AbortSignal | undefined;
-}
+};
 
-export interface WarmStatus {
+export type WarmStatus = {
   ready: boolean;
   queued: boolean;
   warming: boolean;
   pending: number;
   full: boolean;
-}
+};
 
-export interface PlayableFile extends SourceFile {
+export type PlayableFile = SourceFile & {
   playable: boolean;
-}
+};
 
-export interface FileListing {
+export type FileListing = {
   files: PlayableFile[];
-}
+};
 
-export interface JobStats {
+export type JobStats = {
   running: number;
   runningBackground: number;
   queued: number;
-}
+};
 
-export interface HlsStatus {
+export type HlsStatus = {
   jobs: JobStats;
   segmentCacheBytes: number;
   cache: CacheUsage;
-}
+};
 
 /**
- * HLS over the Matroska files of the sources a `SourceProvider` serves. Every
+ * HLS over the media files of the sources a `SourceProvider` serves. Every
  * media URL has the shape `<sourceId>/<fileId>/<parts...>`; route it to
  * `resolve`.
  */
-export interface HlsService {
+export type HlsService = {
   /**
-   * The master playlist of `fileId`, or of the source's first Matroska file
+   * The master playlist of `fileId`, or of the source's first media file
    * when it is omitted. Builds the index and playlists on first use.
    */
   master(
@@ -127,7 +141,7 @@ export interface HlsService {
   status(): HlsStatus;
   /** Stops the cache sweep and kills running ffmpeg processes. */
   close(): void;
-}
+};
 
 type HlsServiceDeps = {
   layout: CacheLayout;
@@ -142,7 +156,8 @@ type HlsServiceDeps = {
   warmSegments: number;
   warmConcurrency: number;
   requestTimeoutMs: number;
-  masterUriPrefix: (sourceId: string, fileId: string) => string;
+  aacFallback: boolean;
+  masterUriPrefix: MasterUriPrefix;
   logger: Logger;
 };
 
@@ -151,7 +166,7 @@ const MIB = 1024 * 1024;
 // Bump when the renditions or playlists made from the same index change. A
 // cache written under another version is cleared on start, since its master
 // playlists are served without reading the index again.
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/u;
 
@@ -178,6 +193,8 @@ export async function createHlsService(
     maxConcurrentJobs = 64,
     jobTimeoutMs = 180_000,
     audioReadFromKeyframe = true,
+    aacFallback = false,
+    aacCoder = 'fast',
     segmentCacheBytes = 15_360 * MIB,
     metadataCacheBytes = 2048 * MIB,
     cacheTotalBytes = segmentCacheBytes + metadataCacheBytes,
@@ -188,38 +205,37 @@ export async function createHlsService(
     logger = silentLogger,
   } = options;
 
-  try {
-    await new FfmpegSupervisor(ffmpegPath).run({ args: ['-version'] });
-  } catch (err) {
-    throw err instanceof FfmpegError
-      ? err
-      : new FfmpegError(errorMessage(err), '');
-  }
+  await checkFfmpeg(ffmpegPath);
 
-  const layout = new CacheLayout(cacheDir);
+  const layout = createCacheLayout(cacheDir);
   await clearIfStale(layout, logger);
   await mkdir(layout.hlsDir, { recursive: true });
 
-  const segments = new SegmentCache(layout.hlsDir, segmentCacheBytes, logger);
+  const segments = createSegmentCache(
+    layout.hlsDir,
+    segmentCacheBytes,
+    logger,
+  );
   await segments.load();
-  const remuxer = new Remuxer({
+  const remuxer = createRemuxer({
     ffmpegPath,
     timeoutMs: jobTimeoutMs,
     audioReadFromKeyframe,
-    notes: new InterleavingNotes(layout, logger),
+    aacCoder,
+    notes: createInterleavingNotes(layout, logger),
     logger,
   });
   await remuxer.restoreNotes();
-  const metadata = new MetadataCache(layout, metadataCacheBytes, {
+  const metadata = createMetadataCache(layout, metadataCacheBytes, {
     logger,
     hostDataDir,
   });
-  const queue = new TaskQueue(
+  const queue = createTaskQueue(
     maxConcurrentJobs,
     keepWarmS ? Math.max(segmentDuration + 1, keepWarmS) : 0,
     logger,
   );
-  const guard = new DiskGuard({
+  const guard = createDiskGuard({
     layout,
     stores: hostStores,
     hostDataDir,
@@ -231,7 +247,7 @@ export async function createHlsService(
     logger,
   });
 
-  const service = new Service({
+  const service = createService({
     layout,
     provider,
     segments,
@@ -244,6 +260,7 @@ export async function createHlsService(
     warmSegments,
     warmConcurrency,
     requestTimeoutMs,
+    aacFallback,
     masterUriPrefix,
     logger,
   });
@@ -252,96 +269,100 @@ export async function createHlsService(
   return service;
 }
 
-class Service implements HlsService {
-  private readonly registry: AssetRegistry;
-  private readonly warming: WarmQueue;
-  private readonly flights = new SingleFlight();
+function createService(deps: HlsServiceDeps): HlsService {
+  const flights = createSingleFlight();
+  const registry = createAssetRegistry({
+    layout: deps.layout,
+    provider: deps.provider,
+    segments: deps.segments,
+    remuxer: deps.remuxer,
+    queue: deps.queue,
+    segmentDuration: deps.segmentDuration,
+    warmSegments: deps.warmSegments,
+    aacFallback: deps.aacFallback,
+    masterUriPrefix: deps.masterUriPrefix,
+    logger: deps.logger,
+  });
+  const warmQueue = createWarmQueue({
+    concurrency: deps.warmConcurrency,
+    warm: (sourceId, fileId) => warmUp(sourceId, fileId),
+    logger: deps.logger,
+  });
 
-  constructor(private readonly deps: HlsServiceDeps) {
-    this.registry = new AssetRegistry({
-      layout: deps.layout,
-      provider: deps.provider,
-      segments: deps.segments,
-      remuxer: deps.remuxer,
-      queue: deps.queue,
-      segmentDuration: deps.segmentDuration,
-      warmSegments: deps.warmSegments,
-      masterUriPrefix: deps.masterUriPrefix,
-      logger: deps.logger,
-    });
-    this.warming = new WarmQueue({
-      concurrency: deps.warmConcurrency,
-      warm: (sourceId, fileId) => this.warmUp(sourceId, fileId),
-      logger: deps.logger,
-    });
-  }
-
-  async master(
+  const master = async (
     sourceId: string,
     fileParam?: string,
     signal?: AbortSignal,
-  ): Promise<ServedFile> {
+  ): Promise<ServedFile> => {
     checkId(sourceId, 'source');
-    this.deps.metadata.touch(sourceId);
+    deps.metadata.touch(sourceId);
 
-    const fileId = await this.fileOrDefault(sourceId, fileParam);
-    return this.servedMaster(sourceId, fileId, signal);
-  }
+    const fileId = await fileOrDefault(sourceId, fileParam);
 
-  async warm(sourceId: string, fileId?: string): Promise<WarmStatus> {
+    return servedMaster(sourceId, fileId, signal);
+  };
+
+  const warm = async (
+    sourceId: string,
+    fileId?: string,
+  ): Promise<WarmStatus> => {
     checkId(sourceId, 'source');
     if (fileId !== undefined) {
       checkId(fileId, 'file');
     }
-    this.deps.metadata.touch(sourceId);
+    deps.metadata.touch(sourceId);
 
-    const ready = await this.alreadyWarm(sourceId, fileId);
-    const queued = ready ? false : this.warming.request(sourceId, fileId);
-    const warming = queued || this.warming.knows(sourceId, fileId);
+    const ready = await alreadyWarm(sourceId, fileId);
+    const queued = ready ? false : warmQueue.request(sourceId, fileId);
+    const warming = queued || warmQueue.knows(sourceId, fileId);
+
     return {
       ready,
       queued,
       warming,
-      pending: this.warming.pending,
-      full: !ready && !warming && this.warming.full,
+      pending: warmQueue.pending,
+      full: !ready && !warming && warmQueue.full,
     };
-  }
+  };
 
-  async files(sourceId: string, signal?: AbortSignal): Promise<FileListing> {
+  const files = async (
+    sourceId: string,
+    signal?: AbortSignal,
+  ): Promise<FileListing> => {
     checkId(sourceId, 'source');
-    const { metadata, provider } = this.deps;
+    const { metadata, provider } = deps;
     metadata.touch(sourceId);
 
     const key = `info:${sourceId}`;
-    const info: SourceListing = await this.orTimeout(
-      this.flights.run(key, signal, () => provider.list(sourceId)),
+    const info: SourceListing = await orTimeout(
+      flights.run(key, signal, () => provider.list(sourceId)),
       `the file list of ${sourceId}`,
     );
 
     return {
       ...info,
-      // Copies rather than mutates: a provider may hand out a cached listing.
-      // oxlint-disable-next-line oxc/no-map-spread
       files: info.files.map((file) => ({
-        ...file,
-        playable: MATROSKA_FILE.test(file.name),
+        id: file.id,
+        name: file.name,
+        length: file.length,
+        playable: MEDIA_FILE.test(file.name),
       })),
     };
-  }
+  };
 
-  async resolve(
+  const resolve = async (
     sourceId: string,
     fileId: string,
     parts: string[],
     signal?: AbortSignal,
-  ): Promise<ServedFile> {
+  ): Promise<ServedFile> => {
     checkId(sourceId, 'source');
     checkId(fileId, 'file');
-    this.deps.provider.touch?.(sourceId);
-    this.deps.metadata.touch(sourceId);
+    deps.provider.touch?.(sourceId);
+    deps.metadata.touch(sourceId);
 
     if (parts.length === 1 && parts[0] === 'master.m3u8') {
-      return this.servedMaster(sourceId, fileId, signal);
+      return servedMaster(sourceId, fileId, signal);
     }
 
     // Every part of the path comes from the client. The shape is checked here
@@ -350,13 +371,14 @@ class Service implements HlsService {
     const [trackParam, name] =
       kind === 'video' && rest.length === 1
         ? [undefined, rest[0]]
-        : (kind === 'audio' || kind === 'subtitles') && rest.length === 2
+        : (kind === 'audio' || kind === 'aac' || kind === 'subtitles') &&
+            rest.length === 2
           ? rest
           : [];
     if (!kind || !name) {
       throw new NotFoundError(`Unsupported path "${parts.join('/')}"`);
     }
-    const asset = await this.registry.get(sourceId, fileId);
+    const asset = await registry.get(sourceId, fileId);
     if (trackParam !== undefined && !/^\d+$/u.test(trackParam)) {
       throw new NotFoundError(`Invalid track "${trackParam}"`);
     }
@@ -369,11 +391,12 @@ class Service implements HlsService {
 
     if (name === 'index.m3u8') {
       if (!(await exists(file))) {
-        await this.orTimeout(
+        await orTimeout(
           asset.writePlaylists(),
           `the playlists for ${sourceId}/${fileId}`,
         );
       }
+
       return {
         path: file,
         contentType: PLAYLIST_TYPE,
@@ -382,10 +405,11 @@ class Service implements HlsService {
     }
 
     if (name === 'init.mp4' && rendition.type !== 'subtitle') {
-      await this.orTimeout(
+      await orTimeout(
         asset.ensureInit(rendition, file, Priority.Foreground, signal),
         `the init section of ${renditionPath(rendition)}`,
       );
+
       return {
         path: file,
         contentType: mediaType,
@@ -409,24 +433,24 @@ class Service implements HlsService {
     }
 
     if (!signal?.aborted) {
-      const mainSegment = this.orTimeout(
+      const mainSegment = orTimeout(
         asset.ensureSegment(rendition, n, Priority.Foreground, signal),
         `segment ${n} of ${renditionPath(rendition)}`,
       );
 
       // Keep the source warm by quietly prefetching the next segment
       // Dropped after keepWarmS unless is promoted (requested)
-      if (this.deps.keepWarm && n < asset.segmentCount - 1) {
+      if (deps.keepWarm && n < asset.segmentCount - 1) {
         for (
           let i = n + 1;
-          i < Math.min(n + 1 + this.deps.warmSegments, asset.segmentCount);
+          i < Math.min(n + 1 + deps.warmSegments, asset.segmentCount);
           i++
         ) {
           asset
             .ensureSegment(rendition, i, Priority.Background, signal, true)
             .catch((err) => {
               if (!(err instanceof AbandonedError)) {
-                this.deps.logger.warn('Keep-warm render failed', {
+                deps.logger.warn('Keep-warm render failed', {
                   rendition: renditionPath(rendition),
                   n: i,
                   error: errorMessage(err),
@@ -445,89 +469,89 @@ class Service implements HlsService {
         rendition.type === 'subtitle' ? 'text/vtt; charset=utf-8' : mediaType,
       cacheControl: MEDIA_CACHE,
     };
-  }
+  };
 
-  status(): HlsStatus {
-    return {
-      jobs: this.deps.queue.stats,
-      segmentCacheBytes: this.deps.segments.usedBytes,
-      cache: this.deps.guard.lastUsage,
-    };
-  }
+  const status = (): HlsStatus => ({
+    jobs: deps.queue.stats,
+    segmentCacheBytes: deps.segments.usedBytes,
+    cache: deps.guard.lastUsage,
+  });
 
-  close(): void {
-    this.deps.guard.stop();
-    this.deps.remuxer.killAll();
-  }
+  const close = (): void => {
+    deps.guard.stop();
+    deps.remuxer.killAll();
+  };
 
-  private async servedMaster(
+  const servedMaster = async (
     sourceId: string,
     fileId: string,
     signal: AbortSignal | undefined,
-  ): Promise<ServedFile> {
-    const file = this.deps.layout.masterFile(sourceId, fileId);
+  ): Promise<ServedFile> => {
+    const file = deps.layout.masterFile(sourceId, fileId);
 
     if (!(await exists(file))) {
-      await this.orTimeout(
-        this.publish(sourceId, fileId, Priority.Foreground, signal),
+      await orTimeout(
+        publish(sourceId, fileId, Priority.Foreground, signal),
         `the playlists for ${sourceId}/${fileId}`,
       );
     }
-    this.startEagerly(sourceId, fileId);
+    startEagerly(sourceId, fileId);
 
     return { path: file, contentType: PLAYLIST_TYPE, cacheControl: 'no-cache' };
-  }
+  };
 
-  private async fileOrDefault(
+  const fileOrDefault = async (
     sourceId: string,
     fileId: string | undefined,
-  ): Promise<string> {
-    const id = fileId ?? (await this.registry.defaultFileId(sourceId));
+  ): Promise<string> => {
+    const id = fileId ?? (await registry.defaultFileId(sourceId));
     checkId(id, 'file');
-    return id;
-  }
 
-  private async publish(
+    return id;
+  };
+
+  const publish = async (
     sourceId: string,
     fileId: string,
     priority: Priority = Priority.Foreground,
     signal?: AbortSignal,
-  ): Promise<Asset> {
-    const asset = await this.registry.get(sourceId, fileId, priority, signal);
+  ): Promise<Asset> => {
+    const asset = await registry.get(sourceId, fileId, priority, signal);
     await asset.writePlaylists();
 
     return asset;
-  }
+  };
 
-  private startEagerly(sourceId: string, fileId: string): void {
-    this.registry
+  const startEagerly = (sourceId: string, fileId: string): void => {
+    registry
       .get(sourceId, fileId)
       .then((asset) => {
         asset.eagerStart();
       })
       .catch(() => {});
-  }
+  };
 
-  private async alreadyWarm(
+  const alreadyWarm = async (
     sourceId: string,
     fileId: string | undefined,
-  ): Promise<boolean> {
-    const id = await this.fileOrDefault(sourceId, fileId);
-    return exists(this.deps.layout.masterFile(sourceId, id));
-  }
+  ): Promise<boolean> => {
+    const id = await fileOrDefault(sourceId, fileId);
+
+    return exists(deps.layout.masterFile(sourceId, id));
+  };
 
   // Renders the opening of the default tracks so a later play starts without
   // waiting for indexing and remux.
-  private async warmUp(
+  const warmUp = async (
     sourceId: string,
     fileParam: string | undefined,
-  ): Promise<void> {
+  ): Promise<void> => {
     const started = Date.now();
-    this.deps.provider.warm?.(sourceId);
-    const fileId = await this.fileOrDefault(sourceId, fileParam);
-    const asset = await this.publish(sourceId, fileId, Priority.Background);
+    deps.provider.warm?.(sourceId);
+    const fileId = await fileOrDefault(sourceId, fileParam);
+    const asset = await publish(sourceId, fileId, Priority.Background);
 
-    const tracks = asset.openingTracks();
+    const tracks = asset.openingTracks;
     for (const rendition of tracks) {
       await asset.ensureInit(
         rendition,
@@ -536,7 +560,7 @@ class Service implements HlsService {
         undefined,
       );
     }
-    const last = Math.min(this.deps.warmSegments, asset.segmentCount);
+    const last = Math.min(deps.warmSegments, asset.segmentCount);
     for (let n = 0; n < last; n++) {
       for (const rendition of tracks) {
         await asset
@@ -544,30 +568,32 @@ class Service implements HlsService {
           .catch(() => {});
       }
     }
-    this.deps.logger.info('Warmed a title', {
+    deps.logger.info('Warmed a title', {
       sourceId,
       fileId,
       name: asset.index.fileName,
       segments: last,
       ms: Date.now() - started,
     });
-  }
+  };
 
   // Bounds how long a client is held. The work behind it keeps running for
   // whoever asks next.
-  private orTimeout<T>(work: Promise<T>, what: string): Promise<T> {
-    return withTimeout(work, this.deps.requestTimeoutMs, () => {
-      const seconds = Math.round(this.deps.requestTimeoutMs / 1000);
-      this.deps.logger.warn('Gave up waiting', {
+  const orTimeout = <T>(work: Promise<T>, what: string): Promise<T> =>
+    withTimeout(work, deps.requestTimeoutMs, () => {
+      const seconds = Math.round(deps.requestTimeoutMs / 1000);
+      deps.logger.warn('Gave up waiting', {
         what,
         seconds,
-        jobs: this.deps.queue.stats,
+        jobs: deps.queue.stats,
       });
+
       return new MediaTimeoutError(
         `Timed out after ${seconds}s producing ${what}`,
       );
     });
-  }
+
+  return { master, warm, files, resolve, status, close };
 }
 
 async function clearIfStale(layout: CacheLayout, logger: Logger) {

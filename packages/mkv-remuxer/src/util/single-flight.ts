@@ -7,28 +7,28 @@ type PendingFlight = {
   waiters: Set<AbortSignal>;
   onAborted?: () => void;
 };
-export class SingleFlight {
-  private readonly pending = new Map<string, PendingFlight>();
+export function createSingleFlight() {
+  const pending = new Map<string, PendingFlight>();
 
-  run<T>(
+  const run = <T>(
     key: string,
     signal: AbortSignal | undefined,
     task: () => Promise<T>,
     onAborted?: PendingFlight['onAborted'],
-  ): Promise<T> {
-    let flight = this.pending.get(key);
+  ): Promise<T> => {
+    let flight = pending.get(key);
     if (!flight) {
       const created: PendingFlight = {
         promise: Promise.resolve()
           .then(task)
           .finally(() => {
-            this.drop(key, created);
+            drop(key, created);
           }),
         abortController: new AbortController(),
         waiters: new Set(),
         onAborted,
       };
-      this.pending.set(key, created);
+      pending.set(key, created);
       flight = created;
     }
 
@@ -40,7 +40,7 @@ export class SingleFlight {
         waiters.delete(signal);
 
         if (waiters.size === 0) {
-          this.drop(key, current, true);
+          drop(key, current, true);
         }
       };
 
@@ -61,14 +61,14 @@ export class SingleFlight {
       flight.promise,
       flight.abortController.signal,
     ) as Promise<T>;
-  }
+  };
 
-  keys(): MapIterator<string> {
-    return this.pending.keys();
-  }
+  const keys = (): MapIterator<string> => {
+    return pending.keys();
+  };
 
-  private drop(key: string, flight: PendingFlight, aborted = false) {
-    if (this.pending.get(key) !== flight) {
+  const drop = (key: string, flight: PendingFlight, aborted = false) => {
+    if (pending.get(key) !== flight) {
       return;
     }
 
@@ -78,6 +78,8 @@ export class SingleFlight {
       );
       flight.onAborted?.();
     }
-    this.pending.delete(key);
-  }
+    pending.delete(key);
+  };
+
+  return { run, keys };
 }

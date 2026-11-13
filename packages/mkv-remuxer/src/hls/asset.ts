@@ -6,14 +6,10 @@ import type { SegmentCache } from '../cache/segment-cache.js';
 import { AbandonedError, NotFoundError } from '../errors.js';
 import type { SourceProvider } from '../io/byte-source.js';
 import type { Logger } from '../logger.js';
-import {
-  getRenditions,
-  type Rendition,
-  type RenditionSet,
-} from '../media/codecs.js';
+import { getRenditions, isPlayable, type Rendition } from '../media/codecs.js';
 import { segmentCount, type MediaIndex } from '../media/media-index.js';
 import { exists, writeFileAtomic } from '../util/fs.js';
-import { SingleFlight } from '../util/single-flight.js';
+import { createSingleFlight } from '../util/single-flight.js';
 import {
   Priority,
   type TaskContext,
@@ -25,13 +21,15 @@ import {
   renditionPath,
   segmentFileName,
 } from './playlists.js';
-import type { Remuxer } from './remux.js';
+import { initNeedsPacket, type Remuxer } from './remux.js';
 
 // Past this, a player is waiting on job slots rather than on download
 // speed. It is logged, never enforced.
 const SLOW_QUEUE_WAIT_MS = 5000;
 
-export type AssetOptions = {
+export type MasterUriPrefix = (sourceId: string, fileId: string) => string;
+
+type AssetOptions = {
   sourceId: string;
   fileId: string;
   index: MediaIndex;
@@ -41,101 +39,93 @@ export type AssetOptions = {
   remuxer: Remuxer;
   queue: TaskQueue;
   warmSegments: number;
-  masterUriPrefix: (sourceId: string, fileId: string) => string;
+  aacFallback: boolean;
+  masterUriPrefix: MasterUriPrefix;
   logger: Logger;
 };
+
+export type Asset = ReturnType<typeof createAsset>;
 
 /**
  * One (sourceId, fileId) pair: its media index, renditions, cache
  * directories, and the work that fills them.
  */
-export class Asset {
-  readonly index: MediaIndex;
-  readonly renditions: RenditionSet;
-  private readonly flights = new SingleFlight();
+export function createAsset(options: AssetOptions) {
+  const { index, sourceId, fileId } = options;
+  const flights = createSingleFlight();
+  const byPath = new Map<string, Rendition>();
+  const sampleDir = options.layout.sampleDir(sourceId, fileId);
+  const renditions = getRenditions(index);
+  const all: Rendition[] = [
+    renditions.video,
+    ...renditions.audio,
+    ...renditions.subtitles,
+  ];
+  const count = segmentCount(index);
+  const openingAudio =
+    renditions.audio.find(
+      (track) => track.track.isDefault && isPlayable(track),
+    ) ??
+    renditions.audio.find((track) => isPlayable(track)) ??
+    renditions.audio.find((track) => track.track.isDefault) ??
+    renditions.audio[0];
+  const openingTracks: Rendition[] = openingAudio
+    ? [openingAudio, renditions.video]
+    : [renditions.video];
 
-  constructor(private readonly options: AssetOptions) {
-    this.index = options.index;
-    this.renditions = getRenditions(options.index);
+  for (const rendition of all) {
+    byPath.set(renditionPath(rendition), rendition);
   }
 
-  get sourceId(): string {
-    return this.options.sourceId;
-  }
-
-  get fileId(): string {
-    return this.options.fileId;
-  }
-
-  get segmentCount(): number {
-    return segmentCount(this.index);
-  }
-
-  drop(reason: Error): void {
-    for (const key of this.flights.keys()) {
-      this.options.queue.abandon(key, false, reason);
+  const drop = (reason: Error): void => {
+    for (const key of flights.keys()) {
+      options.queue.abandon(key, false, reason);
     }
-  }
+  };
 
-  dirOf(rendition: Rendition): string {
-    return this.options.layout.mediaFile(
-      this.options.sourceId,
-      this.options.fileId,
-      renditionPath(rendition),
-    );
-  }
+  const dirOf = (rendition: Rendition): string =>
+    options.layout.mediaFile(sourceId, fileId, renditionPath(rendition));
 
-  segmentPath(rendition: Rendition, n: number): string {
-    return path.join(this.dirOf(rendition), segmentFileName(rendition, n));
-  }
+  const segmentPath = (rendition: Rendition, n: number): string =>
+    path.join(dirOf(rendition), segmentFileName(rendition, n));
 
-  rendition(kind: string, track: number | undefined): Rendition {
-    const found =
-      kind === 'video'
-        ? this.renditions.video
-        : kind === 'audio'
-          ? this.renditions.audio.find((audio) => audio.track.number === track)
-          : this.renditions.subtitles.find(
-              (subtitle) => subtitle.track.number === track,
-            );
+  const renditionOf = (kind: string, track: number | undefined): Rendition => {
+    const found = byPath.get(track === undefined ? kind : `${kind}/${track}`);
     if (!found) {
       throw new NotFoundError(
-        `${this.index.fileName} has no ${kind} rendition for track ${track}`,
+        `${index.fileName} has no ${kind} rendition for track ${track}`,
       );
     }
+
     return found;
-  }
+  };
 
-  writePlaylists(): Promise<void> {
-    const { layout, sourceId, fileId, masterUriPrefix } = this.options;
+  const writePlaylists = (): Promise<void> => {
+    const { layout, masterUriPrefix } = options;
 
-    return this.flights.run('playlists', undefined, async () => {
-      for (const rendition of this.all()) {
-        const dir = this.dirOf(rendition);
+    return flights.run('playlists', undefined, async () => {
+      for (const rendition of all) {
+        const dir = dirOf(rendition);
         await mkdir(dir, { recursive: true });
         await writeFileAtomic(
           path.join(dir, 'index.m3u8'),
-          mediaPlaylist(this.index, rendition),
+          mediaPlaylist(index, rendition),
         );
       }
 
       await writeFileAtomic(
         layout.masterFile(sourceId, fileId),
-        masterPlaylist(
-          this.index,
-          this.renditions,
-          masterUriPrefix(sourceId, fileId),
-        ),
+        masterPlaylist(index, renditions, masterUriPrefix(sourceId, fileId)),
       );
     });
-  }
+  };
 
-  async ensureInit(
+  const ensureInit = async (
     rendition: Rendition,
     file: string,
     priority: Priority,
     signal: AbortSignal | undefined,
-  ): Promise<void> {
+  ): Promise<void> => {
     if (signal?.aborted) {
       throw new AbandonedError(`Client is no more waiting for ${file}`);
     }
@@ -146,13 +136,13 @@ export class Asset {
 
     await mkdir(path.dirname(file), { recursive: true });
 
-    const { queue, remuxer } = this.options;
+    const { queue, remuxer } = options;
 
     if (priority === Priority.Foreground) {
       queue.promote(file);
     }
 
-    return this.flights.run(
+    return flights.run(
       file,
       signal,
       async () => {
@@ -161,84 +151,54 @@ export class Asset {
             key: file,
             priority,
           },
-          ({ signal: running }) =>
-            remuxer.writeInit(this.index, rendition, file, running),
+          ({ signal: running }) => {
+            const target = {
+              index,
+              rendition,
+              signal: running,
+              sampleDir,
+            };
+            if (!initNeedsPacket(rendition)) {
+              return remuxer.writeInit(target, file);
+            }
+
+            return options.provider.lease(
+              sourceId,
+              fileId,
+              {
+                purpose: 'media',
+                foreground: priority === Priority.Foreground,
+              },
+              async (source) => {
+                try {
+                  await remuxer.writeInit({ ...target, source }, file);
+                } catch (err) {
+                  source.release?.();
+                  throw err;
+                }
+              },
+            );
+          },
         );
       },
       () => {
         queue.abandon(file);
       },
     );
-  }
+  };
 
-  async ensureSegment(
-    rendition: Rendition,
-    n: number,
-    priority: Priority,
-    signal: AbortSignal | undefined,
-    stopIfNotPromoted = false,
-  ): Promise<void> {
-    const { queue, segments } = this.options;
-    const file = this.segmentPath(rendition, n);
-
-    if (await exists(file)) {
-      segments.touch(file);
-      return;
-    }
-
-    if (signal?.aborted) {
-      throw new AbandonedError(`Client is not more waiting for ${file}`);
-    }
-
-    const isForeground = priority === Priority.Foreground;
-    if (isForeground) {
-      queue.promote(file);
-    }
-
-    queue.refreshAbandonTimer(file);
-
-    const render = () =>
-      this.flights.run(
-        file,
-        signal,
-        () =>
-          queue.run({ key: file, priority, stopIfNotPromoted }, (state) =>
-            this.loadRemoteSegment(file, rendition, n, isForeground, state),
-          ),
-        () => {
-          queue.abandon(file);
-        },
-      );
-
-    try {
-      await render();
-    } catch (err) {
-      if (err instanceof AbandonedError) {
-        for (
-          let i = n + 1;
-          i < Math.min(n + 1 + this.options.warmSegments, this.segmentCount);
-          i++
-        ) {
-          queue.abandon(this.segmentPath(rendition, i), true);
-        }
-      }
-
-      throw err;
-    }
-  }
-
-  loadRemoteSegment(
+  const loadRemoteSegment = (
     file: string,
     rendition: Rendition,
     n: number,
     isForeground: boolean,
     { signal, waitedMs, promoted }: TaskContext,
-  ) {
-    const { provider, remuxer, queue, segments, logger } = this.options;
+  ) => {
+    const { provider, remuxer, queue, segments, logger } = options;
 
     return provider.lease(
-      this.sourceId,
-      this.fileId,
+      sourceId,
+      fileId,
       { purpose: 'media', foreground: isForeground },
       async (source) => {
         if (signal.aborted) {
@@ -269,7 +229,13 @@ export class Asset {
 
         try {
           await remuxer.writeSegment(
-            { index: this.index, source, rendition, signal },
+            {
+              index,
+              source,
+              rendition,
+              signal,
+              sampleDir,
+            },
             n,
             file,
           );
@@ -281,7 +247,7 @@ export class Asset {
         await segments.added(file);
 
         logger.debug('Rendered segment', {
-          sourceId: this.sourceId,
+          sourceId,
           rendition: renditionPath(rendition),
           n,
           background: !isForeground,
@@ -290,36 +256,85 @@ export class Asset {
         });
       },
     );
-  }
+  };
 
-  openingTracks(): Rendition[] {
-    const { audio, video } = this.renditions;
-    const at = Math.max(
-      0,
-      audio.findIndex((track) => track.track.isDefault),
-    );
-    return [...audio.slice(at, at + 1), video];
-  }
+  const ensureSegment = async (
+    rendition: Rendition,
+    n: number,
+    priority: Priority,
+    signal: AbortSignal | undefined,
+    stopIfNotPromoted = false,
+  ): Promise<void> => {
+    const { queue, segments } = options;
+    const file = segmentPath(rendition, n);
 
-  eagerStart(): void {
-    for (const rendition of this.openingTracks()) {
-      const init = path.join(this.dirOf(rendition), 'init.mp4');
-      this.ensureInit(rendition, init, Priority.Background, undefined).catch(
-        () => {},
+    if (await exists(file)) {
+      segments.touch(file);
+
+      return;
+    }
+
+    if (signal?.aborted) {
+      throw new AbandonedError(`Client is not more waiting for ${file}`);
+    }
+
+    const isForeground = priority === Priority.Foreground;
+    if (isForeground) {
+      queue.promote(file);
+    }
+
+    queue.refreshAbandonTimer(file);
+
+    const render = () =>
+      flights.run(
+        file,
+        signal,
+        () =>
+          queue.run({ key: file, priority, stopIfNotPromoted }, (state) =>
+            loadRemoteSegment(file, rendition, n, isForeground, state),
+          ),
+        () => {
+          queue.abandon(file);
+        },
       );
-      if (this.segmentCount > 0) {
-        this.ensureSegment(rendition, 0, Priority.Background, undefined).catch(
-          () => {},
-        );
+
+    try {
+      await render();
+    } catch (err) {
+      if (err instanceof AbandonedError) {
+        for (
+          let i = n + 1;
+          i < Math.min(n + 1 + options.warmSegments, count);
+          i++
+        ) {
+          queue.abandon(segmentPath(rendition, i), true);
+        }
+      }
+
+      throw err;
+    }
+  };
+
+  const eagerStart = (): void => {
+    for (const rendition of openingTracks) {
+      const init = path.join(dirOf(rendition), 'init.mp4');
+      ensureInit(rendition, init, Priority.Background, undefined).catch(() => {});
+      if (count > 0) {
+        ensureSegment(rendition, 0, Priority.Background, undefined).catch(() => {});
       }
     }
-  }
+  };
 
-  all(): Rendition[] {
-    return [
-      this.renditions.video,
-      ...this.renditions.audio,
-      ...this.renditions.subtitles,
-    ];
-  }
+  return {
+    index,
+    segmentCount: count,
+    openingTracks,
+    drop,
+    dirOf,
+    rendition: renditionOf,
+    writePlaylists,
+    ensureInit,
+    ensureSegment,
+    eagerStart,
+  };
 }

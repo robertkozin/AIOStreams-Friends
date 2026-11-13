@@ -1,44 +1,86 @@
 import type { ByteSource } from '../io/byte-source.js';
+import type { CuePoint } from '../matroska/cues.js';
 import { MatroskaError } from '../matroska/ebml.js';
 import { readMatroskaLayout } from '../matroska/layout.js';
-import type { SliceRange } from '../matroska/slicer.js';
+import { firstBlocks, type SliceRange } from '../matroska/slicer.js';
 import type { MkvTrack } from '../matroska/tracks.js';
+import { copyGrid, isCopiedAudio } from './codecs.js';
+import type { Mp4Index } from './mp4-index.js';
 
 // Bump when the index shape changes. A cached index of another version is
 // rebuilt from the file rather than read.
-export const MEDIA_INDEX_VERSION = 7;
+export const MEDIA_INDEX_VERSION = 9;
 
 /**
  * ts is a Matroska tick, cluster an absolute file offset, rel the block's
  * offset inside that cluster when the cue carried one.
  */
-export type Keyframe = {
+type Keyframe = {
   ts: number;
   cluster: number;
   rel?: number | undefined;
 };
 
 /**
- * Everything needed to plan and cut segments without reading the file again.
- * Durations are seconds; keyframe and track timestamps stay in ticks.
+ * The frame grid a copied audio track is cut on, in samples at `rate`: frame
+ * is one packet, lead how far past a segment's keyframe its audio starts.
+ * origin is the presentation time in seconds of the track's first packet.
  */
-export type MediaIndex = {
+export type AudioGrid = {
+  rate: number;
+  frame: number;
+  lead: number;
+  origin: number;
+};
+
+/**
+ * A subtitle block the Cues index locates: ts and duration in ticks, cluster
+ * an absolute file offset, rel the block's offset inside that cluster.
+ */
+export type SubtitleCue = {
+  ts: number;
+  duration: number;
+  cluster: number;
+  rel?: number | undefined;
+};
+
+/** What the index of every container holds. Durations are seconds. */
+export type IndexBase = {
   version: number;
   fileName: string;
   fileLength: number;
+  duration: number;
+  videoTrack: number;
+  targetDuration: number;
+  /** Frames per second the video packets run at, when they show it. */
+  frameRate?: number | undefined;
+};
+
+/**
+ * Everything needed to plan and cut segments without reading the file again.
+ * Keyframe and track timestamps stay in ticks.
+ */
+export type MatroskaIndex = IndexBase & {
+  container: 'matroska';
   docType: string;
   timestampScale: number;
-  duration: number;
   firstClusterOffset: number;
   mediaEnd: number;
   ebmlHeader: string;
   info: string;
   tracks: MkvTrack[];
-  videoTrack: number;
   keyframes: Keyframe[];
   segmentStarts: number[];
-  targetDuration: number;
+  /** Keyed by track number, for every copied audio track. */
+  audioGrids: Record<number, AudioGrid>;
+  /**
+   * Keyed by track number, for every subtitle track: its blocks the Cues
+   * index gives a duration for, in time order.
+   */
+  subtitleCues: Record<number, SubtitleCue[]>;
 };
+
+export type MediaIndex = MatroskaIndex | Mp4Index;
 
 /**
  * A byte range to read plus the cut to apply to it. verifyStart asks the
@@ -65,11 +107,20 @@ const BOUNDARY_PEEK_BYTES = 12 + 64;
 // consecutive segments neither overlap nor leave a gap.
 export const AAC_FRAME_SAMPLES = 1024;
 
+// The first blocks of the copied audio tracks, and the video blocks the frame
+// rate is measured on, are looked for this far into the clusters, the range
+// the layout read already prefetches.
+const FIRST_BLOCK_BYTES = 16 * 1024 * 1024;
+export const FRAME_RATE_FRAMES = 240;
+// Matroska rounds every timestamp, so a measured rate this close to a whole
+// or an NTSC rate is that rate.
+const FRAME_RATE_TOLERANCE = 0.0005;
+
 export async function buildMediaIndex(
   source: ByteSource,
   fileName: string,
   targetDuration: number,
-): Promise<MediaIndex> {
+): Promise<MatroskaIndex> {
   const layout = await readMatroskaLayout(source);
 
   const video = layout.tracks.find((track) => track.kind === 'video');
@@ -78,9 +129,13 @@ export async function buildMediaIndex(
   }
 
   const keyframes: Keyframe[] = [];
-  const cues = layout.cues
-    .filter((cue) => cue.track === video.number)
-    .sort((a, b) => a.time - b.time);
+  const cues: CuePoint[] = [];
+  for (const cue of layout.cues) {
+    if (cue.track === video.number) {
+      cues.push(cue);
+    }
+  }
+  cues.sort((a, b) => a.time - b.time);
 
   for (const cue of cues) {
     if (keyframes.at(-1)?.ts === cue.time) {
@@ -97,17 +152,67 @@ export async function buildMediaIndex(
     throw new MatroskaError('Cues index has no entries for the video track');
   }
 
-  const toSeconds = (ticks: number) => (ticks * layout.timestampScale) / 1e9;
-  const lastKeyframe = toSeconds(keyframes.at(-1)!.ts);
+  const lastKeyframe = toSeconds(keyframes.at(-1)!.ts, layout.timestampScale);
   let duration =
-    layout.durationTicks === undefined ? 0 : toSeconds(layout.durationTicks);
+    layout.durationTicks === undefined
+      ? 0
+      : toSeconds(layout.durationTicks, layout.timestampScale);
   // Duration is optional and sometimes wrong. Fall back to the last keyframe
   // plus one segment.
   if (!(duration > lastKeyframe)) {
     duration = lastKeyframe + targetDuration;
   }
 
+  const subtitleCues: Record<number, SubtitleCue[]> = {};
+  const audioGrids: Record<number, AudioGrid> = {};
+  const copied = new Set<number>();
+  for (const track of layout.tracks) {
+    if (isCopiedAudio(track)) {
+      copied.add(track.number);
+    }
+    if (track.kind === 'subtitle') {
+      subtitleCues[track.number] = [];
+    }
+  }
+  for (const cue of layout.cues) {
+    const list = subtitleCues[cue.track];
+    if (list && cue.duration !== undefined) {
+      list.push({
+        ts: cue.time,
+        duration: cue.duration,
+        cluster: cue.clusterPosition,
+        rel: cue.relativePosition,
+      });
+    }
+  }
+  for (const list of Object.values(subtitleCues)) {
+    list.sort((a, b) => a.ts - b.ts);
+  }
+  const first = await firstBlocks(
+    source.stream(
+      layout.firstClusterOffset,
+      Math.min(layout.mediaEnd, layout.firstClusterOffset + FIRST_BLOCK_BYTES),
+    ),
+    copied,
+    video.number,
+    FRAME_RATE_FRAMES,
+  );
+  for (const track of layout.tracks) {
+    if (!copied.has(track.number)) {
+      continue;
+    }
+    const block = first.blocks.get(track.number);
+    audioGrids[track.number] = copyGrid(
+      track,
+      block && {
+        seconds: toSeconds(block.ts, layout.timestampScale),
+        frame: block.frame,
+      },
+    );
+  }
+
   return {
+    container: 'matroska',
     version: MEDIA_INDEX_VERSION,
     fileName,
     fileLength: source.length,
@@ -122,12 +227,51 @@ export async function buildMediaIndex(
     videoTrack: video.number,
     keyframes,
     segmentStarts: planSegments(
-      keyframes.map((kf) => toSeconds(kf.ts)),
+      keyframes.map((kf) => toSeconds(kf.ts, layout.timestampScale)),
       duration,
       targetDuration,
     ),
     targetDuration,
+    audioGrids,
+    frameRate: measuredFrameRate(first.video, layout.timestampScale),
+    subtitleCues,
   };
+}
+
+// The mean gap between the presentation times of the first video blocks.
+// Gaps longer than one and a half typical ones are dropped frames and left out.
+export function measuredFrameRate(
+  ticks: number[],
+  timestampScale: number,
+): number | undefined {
+  const sorted = ticks.toSorted((a, b) => a - b);
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    gaps.push(sorted[i]! - sorted[i - 1]!);
+  }
+  if (gaps.length === 0) {
+    return undefined;
+  }
+  const typical = gaps.toSorted((a, b) => a - b)[gaps.length >> 1]!;
+  let total = 0;
+  let frames = 0;
+  for (const gap of gaps) {
+    if (gap > 0 && gap <= typical * 1.5) {
+      total += gap;
+      frames++;
+    }
+  }
+  if (frames === 0) {
+    return undefined;
+  }
+  const rate = (frames * 1e9) / (total * timestampScale);
+  for (const known of [Math.round(rate), Math.round(rate * 1.001) / 1.001]) {
+    if (Math.abs(rate - known) <= known * FRAME_RATE_TOLERANCE) {
+      return known;
+    }
+  }
+
+  return rate;
 }
 
 /**
@@ -135,7 +279,7 @@ export async function buildMediaIndex(
  * target seconds, taking the earlier keyframe when it lands closer to target
  * and is at least half of it. Returns indexes into keyframeTimes.
  */
-function planSegments(
+export function planSegments(
   keyframeTimes: number[],
   duration: number,
   target: number,
@@ -169,19 +313,34 @@ function planSegments(
   return starts;
 }
 
-export function ticksToSeconds(index: MediaIndex, ticks: number): number {
-  return (ticks * index.timestampScale) / 1e9;
+function toSeconds(ticks: number, timestampScale: number): number {
+  return (ticks * timestampScale) / 1e9;
 }
 
-export function secondsToTicks(index: MediaIndex, seconds: number): number {
+export function ticksToSeconds(index: MatroskaIndex, ticks: number): number {
+  return toSeconds(ticks, index.timestampScale);
+}
+
+export function secondsToTicks(index: MatroskaIndex, seconds: number): number {
   return Math.round((seconds * 1e9) / index.timestampScale);
 }
 
 export function segmentCount(index: MediaIndex): number {
-  return index.segmentStarts.length;
+  return index.container === 'mp4'
+    ? index.segmentTimes.length
+    : index.segmentStarts.length;
 }
 
 export function segmentStart(index: MediaIndex, n: number): number {
+  if (index.container === 'mp4') {
+    const start = index.segmentTimes[n];
+    if (start === undefined) {
+      throw new RangeError(`Segment ${n} is out of range`);
+    }
+
+    return start;
+  }
+
   return n === 0 ? 0 : ticksToSeconds(index, segmentKeyframe(index, n).ts);
 }
 
@@ -196,12 +355,57 @@ export function aacSegmentStart(
   );
 }
 
-function segmentKeyframe(index: MediaIndex, n: number): Keyframe {
+/**
+ * Where the grid's frame boundaries fall relative to its first packet,
+ * in seconds within half a frame of zero.
+ */
+export function gridPhase(grid: AudioGrid): number {
+  const frame = grid.frame / grid.rate;
+
+  return grid.origin - frame * Math.round(grid.origin / frame);
+}
+
+/**
+ * Start of segment n of a copied track, in samples at the grid rate. It is
+ * the first frame boundary that every packet owned by the segment follows
+ * the segment's keyframe on, so the segment is read from that keyframe.
+ */
+export function copySegmentStart(
+  index: MatroskaIndex,
+  grid: AudioGrid,
+  n: number,
+): number {
+  if (n === 0) {
+    return 0;
+  }
+  const offset = (segmentStart(index, n) - gridPhase(grid)) * grid.rate;
+
+  return Math.ceil((offset + grid.lead) / grid.frame) * grid.frame;
+}
+
+/** Start in seconds of segment n of a copied audio track. */
+export function copiedAudioStart(
+  index: MediaIndex,
+  track: number,
+  n: number,
+): number {
+  if (index.container === 'mp4') {
+    const { starts, timescale } = index.samples[track]!;
+
+    return starts[n]! / timescale;
+  }
+  const grid = index.audioGrids[track]!;
+
+  return copySegmentStart(index, grid, n) / grid.rate;
+}
+
+function segmentKeyframe(index: MatroskaIndex, n: number): Keyframe {
   const k = index.segmentStarts[n];
   const keyframe = k === undefined ? undefined : index.keyframes[k];
   if (!keyframe) {
     throw new RangeError(`Segment ${n} is out of range`);
   }
+
   return keyframe;
 }
 
@@ -210,7 +414,7 @@ function segmentKeyframe(index: MediaIndex, n: number): Keyframe {
  * keyframe's block when the cue index placed it inside its cluster.
  */
 export function keyframeSlice(
-  index: MediaIndex,
+  index: MatroskaIndex,
   n: number,
   tight = true,
 ): SliceTarget {
@@ -242,7 +446,7 @@ export function keyframeSlice(
  * widens by the interleave slack unless the file is known to interleave tightly.
  */
 export function timeSlice(
-  index: MediaIndex,
+  index: MatroskaIndex,
   from: number,
   to: number | null,
   { tight = false }: { tight?: boolean } = {},
@@ -273,7 +477,7 @@ export function timeSlice(
 
 // Several keyframes can share a cluster, so walk on to the next distinct
 // cluster offset.
-function nextClusterAfter(index: MediaIndex, k: number): number {
+function nextClusterAfter(index: MatroskaIndex, k: number): number {
   const cluster = index.keyframes[k]!.cluster;
   for (let i = k + 1; i < index.keyframes.length; i++) {
     const next = index.keyframes[i]!.cluster;
@@ -281,5 +485,6 @@ function nextClusterAfter(index: MediaIndex, k: number): number {
       return Math.min(index.mediaEnd, next);
     }
   }
+
   return index.mediaEnd;
 }

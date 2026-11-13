@@ -7,39 +7,11 @@ import {
   readUint,
   type EbmlElement,
 } from './ebml.js';
+import type { DolbyVision, MediaTrack, TrackKind } from '../media/track.js';
 import { Id } from './ids.js';
 
-export type TrackKind = 'video' | 'audio' | 'subtitle';
-
-/** A Dolby Vision configuration record's fields that playlists need. */
-export type DolbyVision = {
-  profile: number;
-  level: number;
-  /** What a player without Dolby Vision sees: 1 HDR10, 2 SDR, 4 HLG, 0 nothing. */
-  compatibility: number;
-};
-
-export type MkvTrack = {
-  number: number;
+export type MkvTrack = MediaTrack & {
   uid: string;
-  kind: TrackKind;
-  codecId: string;
-  codecPrivate?: string | undefined;
-  name?: string | undefined;
-  language: string;
-  isDefault: boolean;
-  isForced: boolean;
-  isEnabled: boolean;
-  defaultDurationNs?: number | undefined;
-  width?: number | undefined;
-  height?: number | undefined;
-  transferCharacteristics?: number | undefined;
-  dolbyVision?: DolbyVision | undefined;
-  sampleRate?: number | undefined;
-  channels?: number | undefined;
-  // The TrackEntry element verbatim, base64. Lets a rebuilt header carry the
-  // track through byte for byte.
-  entry: string;
 };
 
 // Matroska TrackType values. Anything else (logo, buttons, control) is dropped.
@@ -60,6 +32,7 @@ export function parseTracks(buf: Uint8Array, tracks: EbmlElement): MkvTrack[] {
       result.push(track);
     }
   }
+
   return result;
 }
 
@@ -70,6 +43,7 @@ function parseTrackEntry(buf: Uint8Array, entry: EbmlElement): MkvTrack | null {
     kind: 'video',
     codecId: '',
     language: 'eng',
+    iso639Language: 'eng',
     isDefault: true,
     isForced: false,
     isEnabled: true,
@@ -102,6 +76,7 @@ function parseTrackEntry(buf: Uint8Array, entry: EbmlElement): MkvTrack | null {
         break;
       case Id.Language:
         track.language = readString(buf, el) || 'und';
+        track.iso639Language = track.language;
         break;
       // BCP 47 wins over the older three-letter Language element when
       // both are present.
@@ -128,13 +103,18 @@ function parseTrackEntry(buf: Uint8Array, entry: EbmlElement): MkvTrack | null {
           if (v.id === Id.PixelHeight) {
             track.height = readUint(buf, v);
           }
+          if (v.id === Id.FlagInterlaced) {
+            track.interlaced = readUint(buf, v);
+          }
+          if (v.id === Id.FieldOrder) {
+            track.fieldOrder = readUint(buf, v);
+          }
           if (v.id === Id.Colour) {
-            const transfer = [
-              ...childElements(buf, v.dataStart, v.dataEnd),
-            ].find((c) => c.id === Id.TransferCharacteristics);
-            track.transferCharacteristics = transfer
-              ? readUint(buf, transfer)
-              : undefined;
+            track.transferCharacteristics = transferCharacteristics(
+              buf,
+              v.dataStart,
+              v.dataEnd,
+            );
           }
         }
         break;
@@ -166,7 +146,20 @@ function parseTrackEntry(buf: Uint8Array, entry: EbmlElement): MkvTrack | null {
   if (bcp47) {
     track.language = bcp47;
   }
+
   return track;
+}
+
+function transferCharacteristics(
+  buf: Uint8Array,
+  start: number,
+  end: number,
+): number | undefined {
+  for (const c of childElements(buf, start, end)) {
+    if (c.id === Id.TransferCharacteristics) {
+      return readUint(buf, c);
+    }
+  }
 }
 
 // BlockAddIDType names the record by its ISO BMFF box: dvcC up to profile 7,
@@ -199,6 +192,7 @@ function parseDolbyVision(
   // Two version bytes, then 7 bits of profile and 6 of level, three
   // presence flags, and 4 bits of base layer compatibility.
   const bits = record.readUInt16BE(2);
+
   return {
     profile: bits >> 9,
     level: (bits >> 3) & 0x3f,
