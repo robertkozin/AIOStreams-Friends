@@ -14,7 +14,7 @@ import {
 import { Id } from './ids.js';
 import { parseTracks, type MkvTrack } from './tracks.js';
 
-export type MatroskaLayout = {
+type MatroskaLayout = {
   docType: string;
   ebmlHeader: Buffer;
   info: Buffer;
@@ -37,54 +37,57 @@ const READ_AHEAD = 256 * 1024;
 
 const EARLY_MEDIA_BYTES = 16 * 1024 * 1024;
 
-class CachedReader {
-  private readonly blocks: { start: number; data: Buffer }[] = [];
+function createCachedReader(source: ByteSource) {
+  const blocks: { start: number; data: Buffer }[] = [];
 
-  constructor(private readonly source: ByteSource) {}
-
-  async read(start: number, end: number): Promise<Buffer> {
-    end = Math.min(end, this.source.length);
-    for (const block of this.blocks) {
+  const read = async (start: number, end: number): Promise<Buffer> => {
+    end = Math.min(end, source.length);
+    for (const block of blocks) {
       if (start >= block.start && end <= block.start + block.data.length) {
         return block.data.subarray(start - block.start, end - block.start);
       }
     }
 
     const fetchEnd = Math.min(
-      this.source.length,
-      Math.max(end, start + (this.source.minReadBytes ?? READ_AHEAD)),
+      source.length,
+      Math.max(end, start + (source.minReadBytes ?? READ_AHEAD)),
     );
-    const data = await readRange(this.source, start, fetchEnd);
+    const data = await readRange(source, start, fetchEnd);
     if (data.length < end - start) {
       throw new MatroskaError(`Unexpected end of file at byte ${start}`);
     }
-    this.blocks.push({ start, data });
-    return data.subarray(0, end - start);
-  }
+    blocks.push({ start, data });
 
-  async header(pos: number): Promise<ElementHeader> {
+    return data.subarray(0, end - start);
+  };
+
+  const readHeader = async (pos: number): Promise<ElementHeader> => {
     // 12 bytes covers the widest header: a 4-byte ID and an 8-byte size.
-    const header = readElementHeader(await this.read(pos, pos + 12), 0);
+    const header = readElementHeader(await read(pos, pos + 12), 0);
     if (!header) {
       throw new MatroskaError(`Truncated element at byte ${pos}`);
     }
-    return header;
-  }
 
-  async element(
+    return header;
+  };
+
+  const element = async (
     pos: number,
     expectedId?: number,
-  ): Promise<RawElement | undefined> {
-    const header = await this.header(pos);
+  ): Promise<RawElement | undefined> => {
+    const header = await readHeader(pos);
     if (expectedId !== undefined && header.id !== expectedId) {
       return undefined;
     }
     if (header.size === UNKNOWN_SIZE) {
       throw new MatroskaError(`Unsized element at byte ${pos}`);
     }
-    const data = await this.read(pos, pos + header.headerLength + header.size);
+    const data = await read(pos, pos + header.headerLength + header.size);
+
     return { header, data };
-  }
+  };
+
+  return { header: readHeader, element };
 }
 
 const asElement = ({ header, data }: RawElement): EbmlElement => ({
@@ -102,7 +105,7 @@ const asElement = ({ header, data }: RawElement): EbmlElement => ({
 export async function readMatroskaLayout(
   source: ByteSource,
 ): Promise<MatroskaLayout> {
-  const reader = new CachedReader(source);
+  const reader = createCachedReader(source);
 
   const ebml = await reader.element(0, Id.EBML);
   if (!ebml) {
@@ -280,6 +283,7 @@ export async function readMatroskaLayout(
       track: cue.track,
       clusterPosition: segmentStart + cue.clusterPosition,
       relativePosition: cue.relativePosition,
+      duration: cue.duration,
     })),
   };
 }

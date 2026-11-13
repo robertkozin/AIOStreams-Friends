@@ -3,30 +3,22 @@ import path from 'node:path';
 
 import { errorMessage, type Logger } from '../logger.js';
 import { TEMP_SUFFIX, touchFile } from '../util/fs.js';
-import { SizeLru } from '../util/lru.js';
+import { createSizeLru } from '../util/lru.js';
 import { isSegmentFile } from './cache-layout.js';
 
 /**
  * LRU over finished segment files. Disk is the record: the index is rebuilt
  * from file mtimes at startup.
  */
-export class SegmentCache {
-  private readonly lru: SizeLru<string>;
+export function createSegmentCache(
+  root: string,
+  budgetBytes: number,
+  logger: Logger,
+) {
+  const lru = createSizeLru<string>(budgetBytes);
 
-  constructor(
-    private readonly root: string,
-    budgetBytes: number,
-    private readonly logger: Logger,
-  ) {
-    this.lru = new SizeLru(budgetBytes);
-  }
-
-  get usedBytes(): number {
-    return this.lru.size;
-  }
-
-  async load(): Promise<void> {
-    const entries = await readdir(this.root, {
+  const load = async (): Promise<void> => {
+    const entries = await readdir(root, {
       recursive: true,
       withFileTypes: true,
     }).catch(() => []);
@@ -50,56 +42,71 @@ export class SegmentCache {
     // Only mtime survives a restart, so it gives the LRU its starting order.
     segments.sort((a, b) => a.mtimeMs - b.mtimeMs);
     for (const { file, bytes, mtimeMs } of segments) {
-      this.lru.set(file, bytes, mtimeMs);
+      lru.set(file, bytes, mtimeMs);
     }
-    await this.trim();
-    this.logger.info('Segment cache loaded', {
+    await trim();
+    logger.info('Segment cache loaded', {
       segments: segments.length,
-      bytes: this.lru.size,
+      bytes: lru.size,
     });
-  }
+  };
 
-  async added(file: string): Promise<void> {
+  const added = async (file: string): Promise<void> => {
     const { size } = await stat(file);
-    this.lru.set(file, size);
-    await this.trim();
-  }
+    lru.set(file, size);
+    await trim();
+  };
 
-  touch(file: string): void {
-    this.lru.touch(file);
+  const touch = (file: string): void => {
+    lru.touch(file);
     touchFile(file);
-  }
+  };
 
   // Drops bookkeeping only. The caller deletes the directory.
-  forgetUnder(dir: string): void {
+  const forgetUnder = (dir: string): void => {
     const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
-    for (const file of this.lru.keys()) {
+    for (const file of lru.keys()) {
       if (file.startsWith(prefix)) {
-        this.lru.delete(file);
+        lru.delete(file);
       }
     }
-  }
+  };
 
-  oldestUsedAt(): number | undefined {
-    return this.lru.oldest()?.usedAt;
-  }
+  const oldestUsedAt = (): number | undefined => {
+    return lru.oldest()?.usedAt;
+  };
 
-  async evictOldest(bytes: number): Promise<number> {
-    const before = this.lru.size;
-    for (const file of this.lru.trimTo(Math.max(0, before - bytes))) {
+  const evictOldest = async (bytes: number): Promise<number> => {
+    const before = lru.size;
+    for (const file of lru.trimTo(Math.max(0, before - bytes))) {
       await rm(file, { force: true }).catch(() => {});
     }
-    return before - this.lru.size;
-  }
 
-  private async trim(): Promise<void> {
-    for (const file of this.lru.trim()) {
+    return before - lru.size;
+  };
+
+  const trim = async (): Promise<void> => {
+    for (const file of lru.trim()) {
       await rm(file, { force: true }).catch((err: unknown) => {
-        this.logger.warn('Could not delete evicted segment', {
+        logger.warn('Could not delete evicted segment', {
           file,
           error: errorMessage(err),
         });
       });
     }
-  }
+  };
+
+  return {
+    get usedBytes(): number {
+      return lru.size;
+    },
+    load,
+    added,
+    touch,
+    forgetUnder,
+    oldestUsedAt,
+    evictOldest,
+  };
 }
+
+export type SegmentCache = ReturnType<typeof createSegmentCache>;

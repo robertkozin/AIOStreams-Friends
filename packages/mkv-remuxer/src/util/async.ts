@@ -18,11 +18,7 @@ export function withTimeout<T>(
 }
 
 /** Resolves with `promise`, or rejects as soon as `signal` aborts. */
-export function untilAborted(promise: Promise<unknown>, signal?: AbortSignal) {
-  if (!signal) {
-    return promise;
-  }
-
+export function untilAborted(promise: Promise<unknown>, signal: AbortSignal) {
   if (signal.aborted) {
     return Promise.reject(signal.reason);
   }

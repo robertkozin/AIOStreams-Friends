@@ -4,79 +4,82 @@ import { errorMessage, type Logger } from '../logger.js';
 // are refused rather than held.
 const MAX_BACKLOG = 256;
 
-export type WarmRequest = {
+type WarmRequest = {
   sourceId: string;
   fileId: string | undefined;
 };
 
-export type WarmQueueOptions = {
+type WarmQueueOptions = {
   concurrency: number;
   warm: (sourceId: string, fileId: string | undefined) => Promise<void>;
   logger: Logger;
 };
 
-export class WarmQueue {
-  private readonly backlog: WarmRequest[] = [];
-  private readonly running = new Set<string>();
+export function createWarmQueue(options: WarmQueueOptions) {
+  const backlog: WarmRequest[] = [];
+  const queued = new Set<string>();
+  const running = new Set<string>();
 
-  constructor(private readonly options: WarmQueueOptions) {}
-
-  get pending(): number {
-    return this.backlog.length;
-  }
-
-  knows(sourceId: string, fileId: string | undefined): boolean {
+  const knows = (sourceId: string, fileId: string | undefined): boolean => {
     const key = warmKey(sourceId, fileId);
-    return (
-      this.running.has(key) ||
-      this.backlog.some(
-        (entry) => warmKey(entry.sourceId, entry.fileId) === key,
-      )
-    );
-  }
 
-  get full(): boolean {
-    return this.backlog.length >= MAX_BACKLOG;
-  }
+    return running.has(key) || queued.has(key);
+  };
 
-  request(sourceId: string, fileId: string | undefined): boolean {
-    if (this.knows(sourceId, fileId)) {
+  const isFull = (): boolean => {
+    return backlog.length >= MAX_BACKLOG;
+  };
+
+  const request = (sourceId: string, fileId: string | undefined): boolean => {
+    if (knows(sourceId, fileId)) {
       return false;
     }
-    if (this.full) {
-      this.options.logger.debug('Warm backlog is full; refused a title', {
+    if (isFull()) {
+      options.logger.debug('Warm backlog is full; refused a title', {
         sourceId,
       });
+
       return false;
     }
-    this.backlog.push({ sourceId, fileId });
-    this.pump();
-    return true;
-  }
+    backlog.push({ sourceId, fileId });
+    queued.add(warmKey(sourceId, fileId));
+    pump();
 
-  private pump(): void {
-    while (
-      this.running.size < this.options.concurrency &&
-      this.backlog.length > 0
-    ) {
-      const next = this.backlog.shift()!;
+    return true;
+  };
+
+  const pump = (): void => {
+    while (running.size < options.concurrency && backlog.length > 0) {
+      const next = backlog.shift()!;
       const key = warmKey(next.sourceId, next.fileId);
-      this.running.add(key);
-      this.options
+      queued.delete(key);
+      running.add(key);
+      options
         .warm(next.sourceId, next.fileId)
         .catch((err: unknown) => {
           // A warm failure costs a cold first play and nothing else.
-          this.options.logger.warn('Could not warm a title', {
+          options.logger.warn('Could not warm a title', {
             sourceId: next.sourceId,
             error: errorMessage(err),
           });
         })
         .finally(() => {
-          this.running.delete(key);
-          this.pump();
+          running.delete(key);
+          pump();
         });
     }
-  }
+  };
+
+  return {
+    get pending(): number {
+      return backlog.length;
+    },
+    knows,
+    get full(): boolean {
+      return isFull();
+    },
+    request,
+  };
 }
 
 // An undefined fileId means the default file of the source. A colon never

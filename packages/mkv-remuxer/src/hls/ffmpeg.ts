@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import { errorMessage } from '../logger.js';
+
 export class FfmpegError extends Error {
   override name = 'FfmpegError';
 
@@ -13,11 +15,13 @@ export class FfmpegError extends Error {
   }
 }
 
-export type FfmpegRun = {
+export type FfmpegOutput = Writable | [Transform, Writable];
+
+type FfmpegRun = {
   args: string[];
   input?: AsyncIterable<Buffer> | Iterable<Buffer> | undefined;
   /** Where stdout goes: a destination, or a transform feeding one. */
-  output?: Writable | [Transform, Writable] | undefined;
+  output?: FfmpegOutput | undefined;
   signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
 };
@@ -33,22 +37,20 @@ const BROKEN_PIPE_CODES = new Set([
   'ERR_STREAM_PREMATURE_CLOSE',
 ]);
 
-export class FfmpegSupervisor {
-  private readonly running = new Set<ChildProcess>();
+export function createFfmpegSupervisor(ffmpegPath: string) {
+  const running = new Set<ChildProcess>();
 
-  constructor(private readonly ffmpegPath: string) {}
-
-  killAll(): void {
-    for (const child of this.running) {
+  const killAll = (): void => {
+    for (const child of running) {
       child.kill('SIGKILL');
     }
-  }
+  };
 
-  async run(run: FfmpegRun): Promise<void> {
+  const execute = async (run: FfmpegRun): Promise<void> => {
     run.signal?.throwIfAborted();
 
     const child = spawn(
-      this.ffmpegPath,
+      ffmpegPath,
       ['-hide_banner', '-nostats', '-loglevel', 'error', ...run.args],
       {
         stdio: [
@@ -59,7 +61,7 @@ export class FfmpegSupervisor {
         windowsHide: true,
       },
     );
-    this.running.add(child);
+    running.add(child);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');
@@ -79,11 +81,11 @@ export class FfmpegSupervisor {
     const closed = new Promise<number | null>((resolve) => {
       child.once('error', (err) => {
         failure ??= err;
-        this.running.delete(child);
+        running.delete(child);
         resolve(null);
       });
       child.once('close', (code) => {
-        this.running.delete(child);
+        running.delete(child);
         resolve(code);
       });
     });
@@ -139,5 +141,17 @@ export class FfmpegSupervisor {
       clearTimeout(timer);
       run.signal?.removeEventListener('abort', onAbort);
     }
+  };
+
+  return { killAll, run: execute };
+}
+
+export async function checkFfmpeg(ffmpegPath: string): Promise<void> {
+  try {
+    await createFfmpegSupervisor(ffmpegPath).run({ args: ['-version'] });
+  } catch (err) {
+    throw err instanceof FfmpegError
+      ? err
+      : new FfmpegError(errorMessage(err), '');
   }
 }

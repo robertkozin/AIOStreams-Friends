@@ -9,41 +9,61 @@ export function isSegmentFile(name: string): boolean {
 }
 
 /** Every path under the cache directory. Nothing else joins cache paths. */
-export class CacheLayout {
-  readonly hlsDir: string;
-
-  constructor(readonly root: string) {
-    this.hlsDir = path.join(root, 'hls');
-  }
+export function createCacheLayout(root: string) {
+  const hlsDir = path.join(root, 'hls');
 
   // Its mtime records when the source was last asked for, across restarts.
-  usedMarker(sourceId: string): string {
-    return path.join(this.hlsDir, sourceId, '.used');
-  }
+  const usedMarker = (sourceId: string): string => {
+    return path.join(hlsDir, sourceId, '.used');
+  };
 
   // Records which CACHE_VERSION wrote the media under hlsDir.
-  versionFile(): string {
-    return path.join(this.root, 'version');
-  }
+  const versionFile = (): string => {
+    return path.join(root, 'version');
+  };
 
-  interleavingFile(): string {
-    return path.join(this.root, 'interleaving.json');
-  }
+  const interleavingFile = (): string => {
+    return path.join(root, 'interleaving.json');
+  };
 
-  mediaDir(sourceId: string, fileId: string): string {
-    return path.join(this.hlsDir, sourceId, fileId);
-  }
+  const mediaDir = (sourceId: string, fileId: string): string => {
+    return path.join(hlsDir, sourceId, fileId);
+  };
 
-  indexFile(sourceId: string, fileId: string): string {
-    return path.join(this.mediaDir(sourceId, fileId), 'index.json');
-  }
+  const indexFile = (sourceId: string, fileId: string): string => {
+    return path.join(mediaDir(sourceId, fileId), 'index.json');
+  };
 
-  masterFile(sourceId: string, fileId: string): string {
-    return path.join(this.mediaDir(sourceId, fileId), 'master.m3u8');
-  }
+  // The sample tables of an MP4 file, one per track.
+  const sampleDir = (sourceId: string, fileId: string): string => {
+    return path.join(mediaDir(sourceId, fileId), 'samples');
+  };
+
+  const masterFile = (sourceId: string, fileId: string): string => {
+    return path.join(mediaDir(sourceId, fileId), 'master.m3u8');
+  };
 
   // relative is a playlist URI, so its separator is always a forward slash.
-  mediaFile(sourceId: string, fileId: string, relative: string): string {
-    return path.join(this.mediaDir(sourceId, fileId), ...relative.split('/'));
-  }
+  const mediaFile = (
+    sourceId: string,
+    fileId: string,
+    relative: string,
+  ): string => {
+    return path.join(mediaDir(sourceId, fileId), ...relative.split('/'));
+  };
+
+  return {
+    root,
+    hlsDir,
+    versionFile,
+    usedMarker,
+    interleavingFile,
+    mediaDir,
+    indexFile,
+    sampleDir,
+    masterFile,
+    mediaFile,
+  };
 }
+
+export type CacheLayout = ReturnType<typeof createCacheLayout>;

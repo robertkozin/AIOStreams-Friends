@@ -15,7 +15,7 @@ export type TaskContext = {
 };
 
 /** key groups tasks for promote() and abandon(). */
-export type TaskSpec = {
+type TaskSpec = {
   key: string;
   priority: Priority;
   stopIfNotPromoted?: boolean;
@@ -37,40 +37,34 @@ type RunningTask = {
   promotion: PromiseWithResolvers<void>;
 };
 
-export class TaskQueue {
-  private readonly waiting: Entry[] = [];
-  private readonly running = new Set<RunningTask>();
-  private readonly backgroundLimit: number;
-  private seq = 0;
+type KeyGroups<T> = Map<string, Set<T>>;
 
-  private needPromotion = new Map<string, NodeJS.Timeout>();
+export function createTaskQueue(
+  concurrency: number,
+  mustPromoteInS: number,
+  logger: Logger,
+) {
+  const waiting = new Set<Entry>();
+  const runningTasks = new Set<RunningTask>();
+  const waitingByKey: KeyGroups<Entry> = new Map();
+  const runningByKey: KeyGroups<RunningTask> = new Map();
+  // Background work never holds more than a third of the slots, so background jobs
+  // cannot starve playback.
+  const backgroundLimit = Math.max(1, Math.floor(concurrency / 3));
+  let seq = 0;
+  let backgroundRunning = 0;
+  let abortedRunning = 0;
 
-  constructor(
-    private readonly concurrency: number,
-    private readonly mustPromoteInS: number,
-    private readonly logger: Logger,
-  ) {
-    // Background work never holds more than a third of the slots, so background jobs
-    // cannot starve playback.
-    this.backgroundLimit = Math.max(1, Math.floor(concurrency / 3));
-  }
+  const needPromotion = new Map<string, NodeJS.Timeout>();
 
-  get stats() {
-    return {
-      running: this.running.size,
-      runningBackground: this.backgroundRunning(),
-      queued: this.waiting.length,
-    };
-  }
-
-  run<T>(
+  const run = <T>(
     spec: TaskSpec,
     task: (context: TaskContext) => Promise<T>,
-  ): Promise<T> {
+  ): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
       const entry: Entry = {
         ...spec,
-        seq: this.seq++,
+        seq: seq++,
         queuedAt: Date.now(),
         // Cancelling a task that has not started rejects the caller's
         // promise; the task function never runs.
@@ -85,8 +79,11 @@ export class TaskQueue {
           };
           if (running.priority === Priority.Foreground) {
             running.promotion.resolve();
+          } else {
+            backgroundRunning++;
           }
-          this.running.add(running);
+          runningTasks.add(running);
+          addToKey(runningByKey, running.key, running);
           running.abort.signal.addEventListener(
             'abort',
             () => {
@@ -105,106 +102,119 @@ export class TaskQueue {
             )
             .then(resolve, reject)
             .finally(() => {
-              this.running.delete(running);
-              if (this.needPromotion.get(entry.key) === entry.abandonTimer) {
-                this.stopAbandonTimer(entry.key);
+              runningTasks.delete(running);
+              removeFromKey(runningByKey, running.key, running);
+              if (running.priority === Priority.Background) {
+                backgroundRunning--;
               }
-              this.drain();
+              if (running.abort.signal.aborted) {
+                abortedRunning--;
+              }
+              if (needPromotion.get(entry.key) === entry.abandonTimer) {
+                stopAbandonTimer(entry.key);
+              }
+              drain();
             });
         },
       };
       if (entry.priority === Priority.Background && entry.stopIfNotPromoted) {
-        entry.abandonTimer = this.abandonNotPromoted(entry.key);
+        entry.abandonTimer = abandonNotPromoted(entry.key);
       }
-      this.waiting.push(entry);
-      this.drain();
+      waiting.add(entry);
+      addToKey(waitingByKey, entry.key, entry);
+      drain();
     });
-  }
+  };
 
-  private abandonNotPromoted(key: string): NodeJS.Timeout | undefined {
-    if (!this.mustPromoteInS) {
-      return;
-    }
-
-    this.stopAbandonTimer(key);
+  const abandonNotPromoted = (key: string): NodeJS.Timeout => {
+    stopAbandonTimer(key);
     const timer = setTimeout(() => {
-      this.needPromotion.delete(key);
-      this.logger.debug(
-        `Abandoning ${key} after ${this.mustPromoteInS * 1000} - not promoted`,
+      needPromotion.delete(key);
+      logger.debug(
+        `Abandoning ${key} after ${mustPromoteInS * 1000} - not promoted`,
       );
-      this.abandon(key);
-    }, this.mustPromoteInS * 1000);
-    this.needPromotion.set(key, timer);
+      abandon(key);
+    }, mustPromoteInS * 1000);
+    needPromotion.set(key, timer);
+
     return timer;
-  }
+  };
 
-  refreshAbandonTimer(key: string) {
-    this.needPromotion.get(key)?.refresh();
-  }
+  const refreshAbandonTimer = (key: string) => {
+    needPromotion.get(key)?.refresh();
+  };
 
-  stopAbandonTimer(key: string) {
-    this.needPromotion.get(key)?.close();
-    this.needPromotion.delete(key);
-  }
+  const stopAbandonTimer = (key: string) => {
+    needPromotion.get(key)?.close();
+    needPromotion.delete(key);
+  };
 
   /**
    * Raises every task under key to foreground. A task already in foreground
    * keeps the better of the two scores, so promotion never demotes it.
    */
-  promote(key: string): void {
-    for (const entry of this.waiting) {
-      if (entry.key === key) {
-        entry.priority = Priority.Foreground;
-      }
+  const promote = (key: string): void => {
+    for (const entry of waitingByKey.get(key) ?? []) {
+      entry.priority = Priority.Foreground;
     }
-    for (const task of this.running) {
-      if (task.key === key) {
-        task.priority = Priority.Foreground;
-        task.promotion.resolve();
+    for (const task of runningByKey.get(key) ?? []) {
+      if (task.priority === Priority.Background) {
+        backgroundRunning--;
       }
+      task.priority = Priority.Foreground;
+      task.promotion.resolve();
     }
-    this.stopAbandonTimer(key);
-    this.drain();
-  }
+    stopAbandonTimer(key);
+    drain();
+  };
 
   /**
    * Drops queued tasks under key and aborts running ones. keepWarmOnly limits
    * this to background tasks queued with stopIfNotPromoted, leaving foreground
    * work and other background jobs untouched.
    */
-  abandon(key: string, keepWarmOnly = false, reason?: Error): void {
+  const abandon = (key: string, keepWarmOnly = false, reason?: Error): void => {
     if (
-      this.abandonWaiting(key, keepWarmOnly, reason) +
-      this.abandonRunning(key, keepWarmOnly, reason)
+      abandonWaiting(key, keepWarmOnly, reason) +
+      abandonRunning(key, keepWarmOnly, reason)
     ) {
-      this.stopAbandonTimer(key);
-      this.drain();
+      stopAbandonTimer(key);
+      drain();
     }
-  }
+  };
 
-  private abandonWaiting(key: string, keepWarmOnly = false, reason?: Error) {
+  const abandonWaiting = (
+    key: string,
+    keepWarmOnly = false,
+    reason?: Error,
+  ) => {
     let abandonedTasks = 0;
-    for (let i = this.waiting.length - 1; i >= 0; i--) {
-      const entry = this.waiting[i]!;
-      if (shouldAbandon(entry, key, keepWarmOnly)) {
+    const group = [...(waitingByKey.get(key) ?? [])];
+    for (let i = group.length - 1; i >= 0; i--) {
+      const entry = group[i]!;
+      if (shouldAbandon(entry, keepWarmOnly)) {
         ++abandonedTasks;
-        this.waiting.splice(i, 1);
+        waiting.delete(entry);
+        removeFromKey(waitingByKey, key, entry);
         entry.cancel(
           reason ?? new AbandonedError(`Nobody is waiting for ${key}`),
         );
       }
     }
-    return abandonedTasks;
-  }
 
-  private abandonRunning(key: string, keepWarmOnly = false, reason?: Error) {
+    return abandonedTasks;
+  };
+
+  const abandonRunning = (
+    key: string,
+    keepWarmOnly = false,
+    reason?: Error,
+  ) => {
     let abandonedTasks = 0;
-    for (const task of this.running) {
-      if (
-        shouldAbandon(task, key, keepWarmOnly) &&
-        !task.abort.signal.aborted
-      ) {
+    for (const task of runningByKey.get(key) ?? []) {
+      if (shouldAbandon(task, keepWarmOnly) && !task.abort.signal.aborted) {
         ++abandonedTasks;
+        abortedRunning++;
         task.abort.abort(
           reason ?? new AbandonedError(`Nobody is waiting for ${key}`),
         );
@@ -212,35 +222,31 @@ export class TaskQueue {
     }
 
     return abandonedTasks;
-  }
+  };
 
-  private drain(): void {
-    while (this.running.size < this.concurrency) {
-      const next = this.pickNext();
+  const drain = (): void => {
+    while (runningTasks.size < concurrency) {
+      const next = pickNext();
       if (!next) {
         break;
       }
-      this.waiting.splice(this.waiting.indexOf(next), 1);
+      waiting.delete(next);
+      removeFromKey(waitingByKey, next.key, next);
       next.start();
     }
-    this.preempt();
-  }
+    preempt();
+  };
 
   // Slots that are already draining count against waiting demand, so two
   // foreground tasks never abort three runners between them.
-  private preempt(): void {
-    let stoppingAnywhere = 0;
-    for (const task of this.running) {
-      if (task.abort.signal.aborted) {
-        stoppingAnywhere++;
-      }
-    }
+  const preempt = (): void => {
+    let stoppingAnywhere = abortedRunning;
 
-    for (const entry of this.waiting) {
+    for (const entry of waiting) {
       if (entry.priority !== Priority.Foreground) {
         continue;
       }
-      if (this.running.size < this.concurrency) {
+      if (runningTasks.size < concurrency) {
         continue;
       }
 
@@ -249,19 +255,20 @@ export class TaskQueue {
         continue;
       }
 
-      const victim = this.pickVictim();
+      const victim = pickVictim();
       if (victim) {
+        abortedRunning++;
         victim.abort.abort(
           new AbandonedError(`Nobody is waiting for ${victim.key}`),
         );
       }
     }
-  }
+  };
 
   // Background runners go first. Among foreground runners only one that scores
   // worse than the newcomer is taken, so equal scores do not thrash.
-  private pickVictim(): RunningTask | undefined {
-    for (const task of this.running) {
+  const pickVictim = (): RunningTask | undefined => {
+    for (const task of runningTasks) {
       if (task.abort.signal.aborted) {
         continue;
       }
@@ -269,28 +276,18 @@ export class TaskQueue {
         return task;
       }
     }
-  }
+  };
 
-  private backgroundRunning(): number {
-    let count = 0;
-    for (const task of this.running) {
-      if (task.priority === Priority.Background) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  private pickNext(): Entry | undefined {
+  const pickNext = (): Entry | undefined => {
     // Order: foreground first, then arrival.
-    const backgroundAllowed = this.backgroundRunning() < this.backgroundLimit;
+    const backgroundAllowed = backgroundRunning < backgroundLimit;
     const now = Date.now();
     const score = (entry: Entry) =>
       Math.floor((now - entry.queuedAt) / SCORE_AGING_MS);
     let best: Entry | undefined;
     let bestScore = 0;
 
-    for (const entry of this.waiting) {
+    for (const entry of waiting) {
       if (entry.priority === Priority.Background && !backgroundAllowed) {
         continue;
       }
@@ -306,18 +303,47 @@ export class TaskQueue {
         bestScore = entryScore;
       }
     }
+
     return best;
+  };
+
+  return {
+    get stats() {
+      return {
+        running: runningTasks.size,
+        runningBackground: backgroundRunning,
+        queued: waiting.size,
+      };
+    },
+    run,
+    refreshAbandonTimer,
+    promote,
+    abandon,
+  };
+}
+
+export type TaskQueue = ReturnType<typeof createTaskQueue>;
+
+function addToKey<T>(groups: KeyGroups<T>, key: string, item: T): void {
+  const group = groups.get(key);
+  if (group) {
+    group.add(item);
+  } else {
+    groups.set(key, new Set([item]));
   }
 }
 
-function shouldAbandon(
-  task: Entry | RunningTask,
-  key: string,
-  keepWarmOnly: boolean,
-) {
+function removeFromKey<T>(groups: KeyGroups<T>, key: string, item: T): void {
+  const group = groups.get(key)!;
+  group.delete(item);
+  if (group.size === 0) {
+    groups.delete(key);
+  }
+}
+
+function shouldAbandon(task: Entry | RunningTask, keepWarmOnly: boolean) {
   return (
-    task.key === key &&
-    (!keepWarmOnly ||
-      (task.priority === Priority.Background && task.stopIfNotPromoted))
+    !keepWarmOnly ||
+    (task.priority === Priority.Background && task.stopIfNotPromoted)
   );
 }
