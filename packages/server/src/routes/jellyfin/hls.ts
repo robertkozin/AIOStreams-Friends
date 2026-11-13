@@ -21,14 +21,29 @@ const entries = (profile: DeviceProfile | undefined, key: string) =>
 const listed = (list: string | undefined, value: string) =>
   !list || list.split(',').some((c) => c.trim().toLowerCase() === value);
 
-/** False only for a profile that lists what it direct plays, without MKV. */
-function directPlaysMkv(profile: DeviceProfile | undefined): boolean {
+/**
+ * The containers the remuxer reads, by a version's container, with the names
+ * a device profile may list each under.
+ */
+const HLS_CONTAINERS: Record<string, string[]> = {
+  mkv: ['mkv', 'matroska'],
+  webm: ['webm'],
+  mp4: ['mp4'],
+  m4v: ['m4v', 'mp4'],
+  mov: ['mov'],
+};
+
+/** False only for a profile that lists what it direct plays, without these. */
+function directPlays(
+  profile: DeviceProfile | undefined,
+  names: string[]
+): boolean {
   const direct = entries(profile, 'DirectPlayProfiles');
   if (!direct) return true;
   return direct.some(
     (p) =>
       (!p.Type || p.Type === 'Video') &&
-      (listed(p.Container, 'mkv') || listed(p.Container, 'matroska'))
+      names.some((name) => listed(p.Container, name))
   );
 }
 
@@ -49,10 +64,11 @@ export function hlsAudioPlace(
 }
 
 /**
- * Gives a native usenet MKV version the HLS remux as its transcoding URL, and
- * a client whose profile can't direct play MKV is sent to it. Every audio
- * track is in the playlist; the one the client picked (or the version's
- * default, where its tracks are known) is the one it starts with.
+ * Gives a native usenet MKV, WebM, MP4 or MOV version the HLS remux as its
+ * transcoding URL, and a client whose profile can't direct play the container
+ * is sent to it. Every audio track is in the playlist; the one the client
+ * picked (or the version's default, where its tracks are known) is the one it
+ * starts with.
  */
 export function offerHls(
   source: JellyfinMediaSource,
@@ -66,7 +82,8 @@ export function offerHls(
   }
 ): void {
   if (record.live || record.notice) return;
-  if (record.container !== 'mkv' || !isUsenetHlsCandidate(record.url)) return;
+  const names = HLS_CONTAINERS[record.container];
+  if (!names || !isUsenetHlsCandidate(record.url)) return;
   const query = new URLSearchParams({
     MediaSourceId: record.msid,
     PlaySessionId: opts.playSessionId,
@@ -88,7 +105,7 @@ export function offerHls(
   source.TranscodingUrl = `/videos/${opts.itemId}/${playlistName(record.filename)}?${query}`;
   source.TranscodingSubProtocol = 'hls';
   source.TranscodingContainer = 'mp4';
-  if (!directPlaysMkv(opts.profile)) source.SupportsDirectPlay = false;
+  if (!directPlays(opts.profile, names)) source.SupportsDirectPlay = false;
 }
 
 /**
