@@ -3,95 +3,109 @@ type Entry = {
   usedAt: number;
 };
 
+export type KeyPredicate<K> = (key: K) => boolean;
+
 /**
  * Byte-budgeted LRU. Map iteration order is insertion order, so the head is
  * the least recently used entry and touch() re-inserts to move a key to the tail.
  */
-export class SizeLru<K> {
-  private readonly entries = new Map<K, Entry>();
-  private totalBytes = 0;
+export function createSizeLru<K>(budgetBytes: number) {
+  const entries = new Map<K, Entry>();
+  let totalBytes = 0;
 
-  constructor(private readonly budgetBytes: number) {}
+  const set = (key: K, bytes: number, usedAt = Date.now()): void => {
+    remove(key);
+    entries.set(key, { bytes, usedAt });
+    totalBytes += bytes;
+  };
 
-  get size(): number {
-    return this.totalBytes;
-  }
-
-  set(key: K, bytes: number, usedAt = Date.now()): void {
-    this.delete(key);
-    this.entries.set(key, { bytes, usedAt });
-    this.totalBytes += bytes;
-  }
-
-  resize(key: K, bytes: number): void {
-    const entry = this.entries.get(key);
-    if (!entry) {
-      return;
-    }
-    this.totalBytes += bytes - entry.bytes;
+  const resize = (key: K, bytes: number): void => {
+    const entry = entries.get(key)!;
+    totalBytes += bytes - entry.bytes;
     entry.bytes = bytes;
-  }
+  };
 
-  touch(key: K): void {
-    const entry = this.entries.get(key);
+  const touch = (key: K): void => {
+    const entry = entries.get(key);
     if (!entry) {
       return;
     }
-    this.entries.delete(key);
+    entries.delete(key);
     entry.usedAt = Date.now();
-    this.entries.set(key, entry);
-  }
+    entries.set(key, entry);
+  };
 
-  has(key: K): boolean {
-    return this.entries.has(key);
-  }
+  const has = (key: K): boolean => {
+    return entries.has(key);
+  };
 
-  keys(): K[] {
-    return [...this.entries.keys()];
-  }
+  const keys = (): K[] => {
+    return [...entries.keys()];
+  };
 
-  delete(key: K): boolean {
-    const entry = this.entries.get(key);
+  const remove = (key: K): boolean => {
+    const entry = entries.get(key);
     if (!entry) {
       return false;
     }
-    this.entries.delete(key);
-    this.totalBytes -= entry.bytes;
-    return true;
-  }
+    entries.delete(key);
+    totalBytes -= entry.bytes;
 
-  oldest(
-    isPinned: (key: K) => boolean = () => false,
-  ): { key: K; bytes: number; usedAt: number } | undefined {
-    for (const [key, entry] of this.entries) {
+    return true;
+  };
+
+  const oldest = (
+    isPinned: KeyPredicate<K> = () => false,
+  ): { key: K; bytes: number; usedAt: number } | undefined => {
+    for (const [key, entry] of entries) {
       if (!isPinned(key)) {
         return { key, bytes: entry.bytes, usedAt: entry.usedAt };
       }
     }
+
     return undefined;
-  }
+  };
 
   /**
    * Evicts from the head until the byte budget holds and returns the evicted
    * keys. Pinned keys are skipped, so the total can stay above budget.
    */
-  trim(isPinned: (key: K) => boolean = () => false): K[] {
-    return this.trimTo(this.budgetBytes, isPinned);
-  }
+  const trim = (isPinned: KeyPredicate<K> = () => false): K[] => {
+    return trimTo(budgetBytes, isPinned);
+  };
 
-  trimTo(limit: number, isPinned: (key: K) => boolean = () => false): K[] {
+  const trimTo = (
+    limit: number,
+    isPinned: KeyPredicate<K> = () => false,
+  ): K[] => {
     const removed: K[] = [];
-    for (const [key, entry] of this.entries) {
-      if (this.totalBytes <= limit) {
+    for (const [key, entry] of entries) {
+      if (totalBytes <= limit) {
         break;
       }
       if (isPinned(key)) {
         continue;
       }
-      this.entries.delete(key);
-      this.totalBytes -= entry.bytes;
+      entries.delete(key);
+      totalBytes -= entry.bytes;
       removed.push(key);
     }
+
     return removed;
-  }
+  };
+
+  return {
+    get size(): number {
+      return totalBytes;
+    },
+    set,
+    resize,
+    touch,
+    has,
+    keys,
+    delete: remove,
+    oldest,
+    trim,
+    trimTo,
+  };
 }

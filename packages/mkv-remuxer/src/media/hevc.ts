@@ -1,36 +1,38 @@
-import type { MkvTrack } from '../matroska/tracks.js';
+import type { MediaTrack } from './track.js';
 
 const UNSPECIFIED = 2;
 const SPS_NAL_TYPE = 33;
 
-class BitReader {
-  private position = 0;
+function createBitReader(bytes: Uint8Array) {
+  let position = 0;
 
-  constructor(private readonly bytes: Uint8Array) {}
-
-  bits(count: number): number {
+  const bits = (count: number): number => {
     let value = 0;
     for (let i = 0; i < count; i++) {
-      const byte = this.bytes[this.position >> 3];
+      const byte = bytes[position >> 3];
       if (byte === undefined) {
         throw new RangeError('SPS ends early');
       }
-      value = value * 2 + ((byte >> (7 - (this.position & 7))) & 1);
-      this.position++;
+      value = value * 2 + ((byte >> (7 - (position & 7))) & 1);
+      position++;
     }
-    return value;
-  }
 
-  expGolomb(): number {
+    return value;
+  };
+
+  const expGolomb = (): number => {
     let zeros = 0;
-    while (this.bits(1) === 0) {
+    while (bits(1) === 0) {
       zeros++;
     }
-    return 2 ** zeros - 1 + this.bits(zeros);
-  }
+
+    return 2 ** zeros - 1 + bits(zeros);
+  };
+
+  return { bits, expGolomb };
 }
 
-export function hevcTransferCharacteristics(track: MkvTrack): number {
+export function hevcTransferCharacteristics(track: MediaTrack): number {
   const { transferCharacteristics, codecPrivate } = track;
   if (
     transferCharacteristics !== undefined &&
@@ -71,6 +73,7 @@ function firstSps(hvcC: Buffer): Buffer | undefined {
       offset += length;
     }
   }
+
   return undefined;
 }
 
@@ -85,7 +88,7 @@ function spsTransferCharacteristics(sps: Buffer): number {
     payload.push(byte);
     zeros = byte === 0 ? zeros + 1 : 0;
   }
-  const r = new BitReader(Uint8Array.from(payload));
+  const r = createBitReader(Uint8Array.from(payload));
 
   r.bits(4);
   const maxSubLayersMinus1 = r.bits(3);
@@ -199,5 +202,6 @@ function spsTransferCharacteristics(sps: Buffer): number {
     return UNSPECIFIED;
   }
   r.bits(8);
+
   return r.bits(8);
 }

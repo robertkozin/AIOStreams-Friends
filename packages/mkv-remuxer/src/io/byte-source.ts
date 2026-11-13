@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 
 /** Random-access reader over a fixed-length byte range. */
-export interface ByteSource {
+export type ByteSource = {
   readonly length: number;
   /** Smallest read worth issuing; shorter ranges are widened to it. */
   readonly minReadBytes?: number;
@@ -9,14 +9,14 @@ export interface ByteSource {
   stream(start: number, end: number): Readable;
   /** Hint that the range will be read soon. */
   prefetch?(start: number, end: number): void;
-}
+};
 
 /**
  * A byte source handed out for the duration of one `SourceProvider.lease`
  * call. The optional hooks let the provider react to how the read is used.
  */
-export interface LeasedSource extends ByteSource {
-  /** File name, checked for a Matroska or WebM extension before indexing. */
+export type LeasedSource = ByteSource & {
+  /** File name, whose extension picks the container before indexing. */
   readonly name: string;
   /** The read now serves a waiting player rather than speculative work. */
   promote?(): void;
@@ -24,7 +24,7 @@ export interface LeasedSource extends ByteSource {
   release?(): void;
   /** Reports data found to be corrupt after it was read. */
   onCorrupt?(listener: (error: Error) => void): void;
-}
+};
 
 /**
  * Why a lease is taken. Indexing reads the file's metadata and may be
@@ -40,22 +40,22 @@ export type ReadHint =
  * limited to letters, digits, `_` and `-` (at most 128). Extra fields pass
  * through to `HlsService.files`.
  */
-export interface SourceFile {
+export type SourceFile = {
   id: string;
   name: string;
   length: number;
-}
+};
 
 /** The files of a source. Extra fields pass through to `HlsService.files`. */
-export interface SourceListing {
+export type SourceListing = {
   files: SourceFile[];
-}
+};
 
 /**
  * Supplies the bytes behind a `sourceId`. The remuxer never opens files or
  * connections itself; every read goes through a lease.
  */
-export interface SourceProvider {
+export type SourceProvider = {
   list(sourceId: string): Promise<SourceListing>;
   /** Runs `work` over file `fileId`, keeping the source open meanwhile. */
   lease<T>(
@@ -70,7 +70,7 @@ export interface SourceProvider {
   warm?(sourceId: string): void;
   /** Sources currently in use; their cached metadata is never evicted. */
   active?(): Set<string>;
-}
+};
 
 // Views the chunk's memory rather than copying it, so the result is only safe
 // to read.
@@ -90,5 +90,6 @@ export async function readRange(
   for await (const chunk of source.stream(start, end)) {
     chunks.push(asBuffer(chunk as Uint8Array));
   }
+
   return Buffer.concat(chunks);
 }

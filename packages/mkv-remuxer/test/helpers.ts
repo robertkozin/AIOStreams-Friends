@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 import type { LeasedSource, SourceProvider } from '../src/io/byte-source.js';
 import type { MkvTrack } from '../src/matroska/tracks.js';
-import type { MediaIndex } from '../src/media/media-index.js';
+import type { MatroskaIndex } from '../src/media/media-index.js';
 
 const run = promisify(execFile);
 
@@ -97,6 +97,7 @@ export function track(fields: Partial<MkvTrack>): MkvTrack {
     kind: 'video',
     codecId: 'V_MPEG4/ISO/AVC',
     language: 'eng',
+    iso639Language: 'eng',
     isDefault: false,
     isForced: false,
     isEnabled: true,
@@ -106,8 +107,9 @@ export function track(fields: Partial<MkvTrack>): MkvTrack {
 }
 
 /** An index over `tracks` with no media, for codec and playlist rules. */
-export function index(tracks: MkvTrack[]): MediaIndex {
+export function index(tracks: MkvTrack[]): MatroskaIndex {
   return {
+    container: 'matroska',
     version: 0,
     fileName: 'test.mkv',
     fileLength: 1_000_000,
@@ -123,5 +125,7 @@ export function index(tracks: MkvTrack[]): MediaIndex {
     keyframes: [],
     segmentStarts: [0],
     targetDuration: 6,
+    audioGrids: {},
+    subtitleCues: {},
   };
 }

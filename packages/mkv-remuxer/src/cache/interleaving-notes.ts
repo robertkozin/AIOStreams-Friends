@@ -10,35 +10,32 @@ const SAVE_DELAY_MS = 2000;
  * Remembers which files turned out to be loosely interleaved, so a later run
  * takes the wider read path without rediscovering it.
  */
-export class InterleavingNotes {
-  private files: string[] = [];
-  private timer: NodeJS.Timeout | undefined;
+export function createInterleavingNotes(layout: CacheLayout, logger: Logger) {
+  let notedFiles: string[] = [];
+  let timer: NodeJS.Timeout | undefined;
 
-  constructor(
-    private readonly layout: CacheLayout,
-    private readonly logger: Logger,
-  ) {}
+  const load = async (): Promise<string[]> => {
+    notedFiles = (await readJson<string[]>(layout.interleavingFile())) ?? [];
 
-  async load(): Promise<string[]> {
-    this.files =
-      (await readJson<string[]>(this.layout.interleavingFile())) ?? [];
-    return [...this.files];
-  }
+    return [...notedFiles];
+  };
 
-  save(files: string[]): void {
-    this.files = files.slice(-MAX_FILES);
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
+  const save = (files: string[]): void => {
+    notedFiles = files.slice(-MAX_FILES);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
       void writeFileAtomic(
-        this.layout.interleavingFile(),
-        JSON.stringify(this.files),
+        layout.interleavingFile(),
+        JSON.stringify(notedFiles),
       ).catch((err: unknown) => {
-        this.logger.warn('Could not save interleaving notes', {
+        logger.warn('Could not save interleaving notes', {
           error: errorMessage(err),
         });
       });
     }, SAVE_DELAY_MS);
     // Debounced and unref'd: a note lost at shutdown costs one rediscovery.
-    this.timer.unref();
-  }
+    timer.unref();
+  };
+
+  return { load, save };
 }

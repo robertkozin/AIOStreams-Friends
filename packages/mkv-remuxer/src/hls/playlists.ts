@@ -1,91 +1,45 @@
 import {
   aacChannels,
   aacSampleRate,
+  bcp47,
   codecString,
   dolbyVisionMode,
   supplementalCodecString,
+  type AudioRendition,
   type Rendition,
   type RenditionSet,
+  type SubtitleRendition,
 } from '../media/codecs.js';
 import { hevcTransferCharacteristics } from '../media/hevc.js';
 import {
   aacSegmentStart,
+  copiedAudioStart,
   segmentCount,
   segmentStart,
   type MediaIndex,
 } from '../media/media-index.js';
-import type { MkvTrack } from '../matroska/tracks.js';
 
 const AUDIO_GROUP = 'audio';
 const SUBTITLE_GROUP = 'subs';
 const VIDEO_RANGES: Record<number, string> = { 16: 'PQ', 18: 'HLG' };
 
-// HLS wants BCP 47 language tags. Matroska carries ISO 639-2, which has
-// both a bibliographic and a terminological code for some languages.
-const ISO_639_1: Record<string, string> = {
-  ara: 'ar',
-  bul: 'bg',
-  cat: 'ca',
-  ces: 'cs',
-  cze: 'cs',
-  chi: 'zh',
-  zho: 'zh',
-  dan: 'da',
-  deu: 'de',
-  ger: 'de',
-  ell: 'el',
-  gre: 'el',
-  eng: 'en',
-  spa: 'es',
-  est: 'et',
-  fas: 'fa',
-  per: 'fa',
-  fin: 'fi',
-  fra: 'fr',
-  fre: 'fr',
-  heb: 'he',
-  hin: 'hi',
-  hrv: 'hr',
-  hun: 'hu',
-  ind: 'id',
-  ita: 'it',
-  jpn: 'ja',
-  kat: 'ka',
-  geo: 'ka',
-  kaz: 'kk',
-  kor: 'ko',
-  lit: 'lt',
-  lav: 'lv',
-  msa: 'ms',
-  may: 'ms',
-  nld: 'nl',
-  dut: 'nl',
-  nor: 'no',
-  nob: 'nb',
-  pol: 'pl',
-  por: 'pt',
-  ron: 'ro',
-  rum: 'ro',
-  rus: 'ru',
-  slk: 'sk',
-  slo: 'sk',
-  slv: 'sl',
-  srp: 'sr',
-  swe: 'sv',
-  tha: 'th',
-  tur: 'tr',
-  ukr: 'uk',
-  vie: 'vi',
-};
-
 const languageNames = new Intl.DisplayNames(['en'], { type: 'language' });
+
+// An AAC rendition is named after its source with the format family, such
+// as "DTS-HD MA" or "DD+ Atmos", replaced by "AAC". Atmos is dropped first
+// because it can stand apart from the codec, as in "TrueHD 7.1 Atmos".
+const ATMOS = /[\s.]*(?<![\p{L}\p{N}])Atmos(?![\p{L}\p{N}])/giu;
+const FORMAT_FAMILY =
+  /(?<![\p{L}\p{N}])(?:DTS(?:[-:]?(?:HD|X|ES))?(?:[\s.-]+(?:MA|HRA|Master[\s.]Audio|High[\s.-]Res(?:olution)?(?:[\s.]Audio)?|Express))?|(?:Dolby[\s.-]*)?TrueHD|Dolby(?:[\s.-]*Digital(?:[\s.-]*Plus)?)?|DD\+|DDP|DD|E-?AC-?3|AC-?3|L?PCM|MP[123]|Vorbis|ALAC|Apple[\s.-]*Lossless|WavPack|TTA|MLP)(?![\p{L}+])/giu;
+const AAC_RUN = /AAC(?:[\s.:-]+AAC)+/gu;
+const AAC_BEFORE_DIGIT = /AAC[.\s]*(?=\d)/gu;
 
 export function renditionPath(rendition: Rendition): string {
   switch (rendition.type) {
     case 'video':
       return 'video';
     case 'audio':
-      return `audio/${rendition.track.number}`;
+      return `${rendition.transcode ? 'aac' : 'audio'}/${rendition.track.number}`;
     case 'subtitle':
       return `subtitles/${rendition.track.number}`;
   }
@@ -101,10 +55,16 @@ export function mediaPlaylist(index: MediaIndex, rendition: Rendition): string {
     rendition.type === 'audio' && rendition.transcode
       ? aacSampleRate(rendition.track)
       : undefined;
-  const start = (n: number) =>
-    rate === undefined
+  const copied = rendition.type === 'audio' && !rendition.transcode;
+  const start = (n: number) => {
+    if (copied) {
+      return copiedAudioStart(index, rendition.track.number, n);
+    }
+
+    return rate === undefined
       ? segmentStart(index, n)
       : aacSegmentStart(index, rate, n) / rate;
+  };
   const micros = (seconds: number) => Math.round(seconds * 1e6);
   const durations = Array.from(
     { length: count },
@@ -148,13 +108,15 @@ export function masterPlaylist(
     `${uriPrefix}${renditionPath(rendition)}/index.m3u8`;
   const lines = ['#EXTM3U', '#EXT-X-VERSION:7', '#EXT-X-INDEPENDENT-SEGMENTS'];
 
-  // At most one member of an audio group may be DEFAULT.
+  // One audio group, in file order, so a host can pick the n-th track: hosts
+  // address renditions by their place among the file's audio tracks. At most
+  // one member of an audio group may be DEFAULT.
   const defaultAt = Math.max(
     0,
     renditions.audio.findIndex((audio) => audio.track.isDefault),
   );
 
-  const audioNames = new Map<string, number>();
+  const namesMap = new Map<string, number>();
   for (const [at, audio] of renditions.audio.entries()) {
     const channels = audio.transcode
       ? aacChannels(audio.track)
@@ -163,7 +125,7 @@ export function masterPlaylist(
       `#EXT-X-MEDIA:${attributes({
         TYPE: 'AUDIO',
         'GROUP-ID': quoted(AUDIO_GROUP),
-        NAME: quoted(uniqueLabel(audio.track, audioNames)),
+        NAME: quoted(uniqueLabel(audio, namesMap)),
         LANGUAGE: optionalQuoted(bcp47(audio.track.language)),
         DEFAULT: at === defaultAt ? 'YES' : 'NO',
         AUTOSELECT: 'YES',
@@ -173,13 +135,14 @@ export function masterPlaylist(
     );
   }
 
-  const namesMap = new Map<string, number>();
+  namesMap.clear();
+
   for (const subtitle of renditions.subtitles) {
     lines.push(
       `#EXT-X-MEDIA:${attributes({
         TYPE: 'SUBTITLES',
         'GROUP-ID': quoted(SUBTITLE_GROUP),
-        NAME: quoted(uniqueLabel(subtitle.track, namesMap)),
+        NAME: quoted(uniqueLabel(subtitle, namesMap)),
         LANGUAGE: optionalQuoted(bcp47(subtitle.track.language)),
         DEFAULT: 'NO',
         AUTOSELECT: 'YES',
@@ -190,28 +153,16 @@ export function masterPlaylist(
   }
 
   const { track } = renditions.video;
+  const videoCodec = codecString(renditions.video);
   const averageBandwidth = Math.round((index.fileLength * 8) / index.duration);
-  // Firefox's MediaCapabilities rejects every av01 codec string paired with
-  // a PQ or HLG transfer function, but runs no such check on HEVC strings.
-  // Dolby Vision with no other picture is PQ whatever the stream signals.
-  const videoRange =
-    dolbyVisionMode(renditions.video) === 'only'
-      ? 'PQ'
-      : renditions.video.codec === 'hevc'
-        ? VIDEO_RANGES[hevcTransferCharacteristics(track)]
-        : undefined;
-  const supplementalCodecs = supplementalCodecString(renditions.video);
-
-  const codecs = [renditions.video, ...renditions.audio].map((rendition) =>
-    codecString(rendition),
-  );
+  // The track header's frame duration is a fallback only: some files state a
+  // rate their packets do not run at.
+  const frameRate =
+    index.frameRate ??
+    (track.defaultDurationNs ? 1e9 / track.defaultDurationNs : undefined);
   const variant = {
     BANDWIDTH: String(Math.round(averageBandwidth * 1.5)),
     'AVERAGE-BANDWIDTH': String(averageBandwidth),
-    CODECS: codecs.every(Boolean)
-      ? quoted([...new Set(codecs)].join(','))
-      : undefined,
-    AUDIO: renditions.audio.length > 0 ? quoted(AUDIO_GROUP) : undefined,
     SUBTITLES:
       renditions.subtitles.length > 0 ? quoted(SUBTITLE_GROUP) : undefined,
     'CLOSED-CAPTIONS': 'NONE',
@@ -219,28 +170,56 @@ export function masterPlaylist(
       track.width && track.height
         ? `${track.width}x${track.height}`
         : undefined,
-    'FRAME-RATE': track.defaultDurationNs
-      ? (1e9 / track.defaultDurationNs).toFixed(3)
-      : undefined,
+    'FRAME-RATE': frameRate?.toFixed(3),
   };
+  // Firefox's MediaCapabilities rejects every av01 codec string paired with
+  // a PQ or HLG transfer function, but runs no such check on HEVC strings.
+  // Dolby Vision with no other picture is PQ whatever the stream signals.
+  const dolbyVision = dolbyVisionMode(renditions.video);
+  const videoRange =
+    dolbyVision === 'only'
+      ? 'PQ'
+      : renditions.video.codec === 'hevc'
+        ? VIDEO_RANGES[hevcTransferCharacteristics(track)]
+        : undefined;
+  const supplementalCodecs = supplementalCodecString(renditions.video);
 
-  lines.push(
-    `#EXT-X-STREAM-INF:${attributes({
+  const pushVariants = (
+    audioGroupId: string | undefined,
+    codecs: (string | undefined)[],
+  ) => {
+    const audioVariant = {
       ...variant,
-      'SUPPLEMENTAL-CODECS': optionalQuoted(supplementalCodecs),
-      'VIDEO-RANGE': videoRange,
-    })}`,
-    uri(renditions.video),
-  );
-  // Dolby Vision alone has no picture to offer as SDR.
-  if (videoRange && dolbyVisionMode(renditions.video) !== 'only') {
+      CODECS: codecs.every(Boolean) ? quoted(codecs.join(',')) : undefined,
+      AUDIO: audioGroupId === undefined ? undefined : quoted(audioGroupId),
+    };
     lines.push(
       `#EXT-X-STREAM-INF:${attributes({
-        ...variant,
-        'VIDEO-RANGE': 'SDR',
+        ...audioVariant,
+        'SUPPLEMENTAL-CODECS': optionalQuoted(supplementalCodecs),
+        'VIDEO-RANGE': videoRange,
       })}`,
-      `${uri(renditions.video)}?range=sdr`,
+      uri(renditions.video),
     );
+    // Dolby Vision alone has no picture to offer as SDR.
+    if (videoRange && dolbyVision !== 'only') {
+      lines.push(
+        `#EXT-X-STREAM-INF:${attributes({
+          ...audioVariant,
+          'VIDEO-RANGE': 'SDR',
+        })}`,
+        `${uri(renditions.video)}?range=sdr`,
+      );
+    }
+  };
+
+  if (renditions.audio.length === 0) {
+    pushVariants(undefined, [videoCodec]);
+  } else {
+    pushVariants(AUDIO_GROUP, [
+      videoCodec,
+      ...new Set(renditions.audio.map((audio) => codecString(audio))),
+    ]);
   }
 
   return `${lines.join('\n')}\n`;
@@ -267,14 +246,11 @@ function optionalQuoted(value: string | undefined): string | undefined {
   return value === undefined ? undefined : quoted(value);
 }
 
-function bcp47(language: string): string | undefined {
-  if (!language || language === 'und') {
-    return undefined;
-  }
-  return ISO_639_1[language.toLowerCase()] ?? language;
-}
-
-function uniqueLabel(track: MkvTrack, used: Map<string, number>): string {
+function uniqueLabel(
+  rendition: AudioRendition | SubtitleRendition,
+  used: Map<string, number>,
+): string {
+  const { track } = rendition;
   const language = bcp47(track.language);
   let label = track.name;
   if (!label && language) {
@@ -285,6 +261,9 @@ function uniqueLabel(track: MkvTrack, used: Map<string, number>): string {
     }
   }
   label ??= `Unknown`;
+  if (rendition.type === 'audio' && rendition.transcode) {
+    label = aacName(label);
+  }
 
   const usedTimes = (used.get(label) ?? 0) + 1;
   if (usedTimes > 1) {
@@ -293,4 +272,16 @@ function uniqueLabel(track: MkvTrack, used: Map<string, number>): string {
   used.set(label, usedTimes);
 
   return label;
+}
+
+// A label with no format token keeps its words and gains " AAC".
+function aacName(label: string): string {
+  const stripped = label.replace(ATMOS, '');
+  const renamed = stripped.replace(FORMAT_FAMILY, 'AAC');
+  const name =
+    renamed === stripped
+      ? `${stripped} AAC`
+      : renamed.replace(AAC_RUN, 'AAC').replace(AAC_BEFORE_DIGIT, 'AAC ');
+
+  return name.replaceAll(/\s+/gu, ' ').trim();
 }

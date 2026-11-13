@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { errorMessage, type Logger } from '../logger.js';
 import { TEMP_SUFFIX } from '../util/fs.js';
+import type { KeyPredicate } from '../util/lru.js';
 import { isSegmentFile, type CacheLayout } from './cache-layout.js';
 import type { MetadataCache } from './metadata-cache.js';
 import type { SegmentCache } from './segment-cache.js';
@@ -25,14 +26,14 @@ type Candidate = {
  * A directory the host keeps under its own budget but wants counted toward the
  * shared total. Its files are measured and evicted alongside the remuxer's.
  */
-export interface HostStore {
+export type HostStore = {
   dir: string;
   oldestUsedAt(): number | undefined;
   /** Frees about `bytes`, oldest first. Resolves to the bytes actually freed. */
   evictOldest(bytes: number): Promise<number>;
-}
+};
 
-export type DiskGuardOptions = {
+type DiskGuardOptions = {
   layout: CacheLayout;
   stores: Record<string, HostStore>;
   hostDataDir?: string | undefined;
@@ -51,7 +52,7 @@ type FreedBytes = {
 };
 
 /** What the last cache sweep measured, in bytes. */
-export interface CacheUsage {
+export type CacheUsage = {
   stores: Record<string, number>;
   segments: number;
   metadata: number;
@@ -60,7 +61,7 @@ export interface CacheUsage {
   titles: number;
   freed: FreedBytes;
   sweptAt: number;
-}
+};
 
 type Title = {
   metadataBytes: number;
@@ -72,59 +73,64 @@ type Title = {
  * result back to the budgets, then evicts oldest first until the total fits.
  * Disk is the record, so a file deleted outside the process is noticed.
  */
-export class DiskGuard {
-  private timer: NodeJS.Timeout | undefined;
-  private sweeping = false;
-  private usage: CacheUsage;
-
-  constructor(private readonly options: DiskGuardOptions) {
-    this.usage = {
-      stores: this.zeroPerStore(),
-      segments: 0,
-      metadata: 0,
-      total: 0,
-      limit: options.totalBytes,
-      titles: 0,
-      freed: { stores: this.zeroPerStore(), segments: 0, metadata: 0 },
-      sweptAt: 0,
-    };
-  }
-
-  get lastUsage(): CacheUsage {
-    return this.usage;
-  }
-
-  start(): void {
-    void this.sweep();
-    this.timer = setInterval(() => void this.sweep(), this.options.intervalMs);
-    this.timer.unref();
-  }
-
-  stop(): void {
-    clearInterval(this.timer);
-  }
-
-  async sweep(): Promise<CacheUsage> {
-    // Sweeps never overlap: a slow one would evict against stale sizes.
-    if (this.sweeping) {
-      return this.usage;
+export function createDiskGuard(options: DiskGuardOptions) {
+  const zeroPerStore = (): Record<string, number> => {
+    const bytes: Record<string, number> = {};
+    for (const name of Object.keys(options.stores)) {
+      bytes[name] = 0;
     }
-    this.sweeping = true;
+
+    return bytes;
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+  let sweeping = false;
+  let usage: CacheUsage = {
+    stores: zeroPerStore(),
+    segments: 0,
+    metadata: 0,
+    total: 0,
+    limit: options.totalBytes,
+    titles: 0,
+    freed: { stores: zeroPerStore(), segments: 0, metadata: 0 },
+    sweptAt: 0,
+  };
+
+  const start = (): void => {
+    void sweep();
+    timer = setInterval(() => void sweep(), options.intervalMs);
+    timer.unref();
+  };
+
+  const stop = (): void => {
+    clearInterval(timer);
+  };
+
+  const sweep = async (): Promise<CacheUsage> => {
+    // Sweeps never overlap: a slow one would evict against stale sizes.
+    if (sweeping) {
+      return usage;
+    }
+    sweeping = true;
     try {
       const { layout, stores, hostDataDir, metadata, totalBytes, logger } =
-        this.options;
+        options;
       const titles = new Map<string, Title>();
       const storeBytes: Record<string, number> = {};
       let measured = 0;
       for (const [name, store] of Object.entries(stores)) {
-        const { total } = await this.measure(store.dir, titles, false);
+        const { total, staleTemps } = await measure(store.dir, titles, false);
+        await removeFiles(staleTemps);
         storeBytes[name] = total;
         measured += total;
       }
       if (hostDataDir) {
-        measured += (await this.measure(hostDataDir, titles, true)).total;
+        const host = await measure(hostDataDir, titles, true);
+        await removeFiles(host.staleTemps);
+        measured += host.total;
       }
-      const hls = await this.measure(layout.hlsDir, titles, true);
+      const hls = await measure(layout.hlsDir, titles, true);
+      await removeFiles(hls.staleTemps);
       measured += hls.total;
       for (const [sourceId, title] of [...titles].sort(
         ([, a], [, b]) => a.writtenAt - b.writtenAt,
@@ -133,11 +139,11 @@ export class DiskGuard {
       }
       metadata.keepOnly(new Set(titles.keys()));
 
-      const busy = this.options.inUse();
+      const busy = options.inUse();
       // A source in use keeps its metadata, however old it is.
       const pinned = (sourceId: string) => busy.has(sourceId);
       let freed: FreedBytes = {
-        stores: this.zeroPerStore(),
+        stores: zeroPerStore(),
         segments: 0,
         metadata: 0,
       };
@@ -145,7 +151,7 @@ export class DiskGuard {
 
       const over = measured - freed.metadata - totalBytes;
       if (over > 0) {
-        freed = await this.evict(over, pinned, freed);
+        freed = await evict(over, pinned, freed);
       }
 
       let storesFreed = 0;
@@ -154,7 +160,7 @@ export class DiskGuard {
         storesLeft[name] = bytes - freed.stores[name];
         storesFreed += freed.stores[name];
       }
-      this.usage = {
+      usage = {
         stores: storesLeft,
         segments: hls.segments - freed.segments,
         metadata: metadata.usedBytes,
@@ -164,26 +170,28 @@ export class DiskGuard {
         freed,
         sweptAt: Date.now(),
       };
-      logger.debug('Cache swept', { ...this.usage });
-      return this.usage;
+      logger.debug('Cache swept', { ...usage });
+
+      return usage;
     } catch (err: unknown) {
-      this.options.logger.warn('Could not sweep the cache', {
+      options.logger.warn('Could not sweep the cache', {
         error: errorMessage(err),
       });
-      return this.usage;
+
+      return usage;
     } finally {
-      this.sweeping = false;
+      sweeping = false;
     }
-  }
+  };
 
   // Takes from whichever store holds the globally oldest entry, so one busy
   // store cannot push another out.
-  private async evict(
+  const evict = async (
     over: number,
-    pinned: (sourceId: string) => boolean,
+    pinned: KeyPredicate<string>,
     freed: FreedBytes,
-  ): Promise<FreedBytes> {
-    const { stores, segments, metadata, logger } = this.options;
+  ): Promise<FreedBytes> => {
+    const { stores, segments, metadata, logger } = options;
     const result: FreedBytes = { ...freed, stores: { ...freed.stores } };
     let remaining = over;
 
@@ -251,24 +259,18 @@ export class DiskGuard {
       segmentsMiB: Math.round((result.segments - freed.segments) / 2 ** 20),
       metadataMiB: Math.round((result.metadata - freed.metadata) / 2 ** 20),
     });
+
     return result;
-  }
+  };
 
-  private zeroPerStore(): Record<string, number> {
-    const bytes: Record<string, number> = {};
-    for (const name of Object.keys(this.options.stores)) {
-      bytes[name] = 0;
-    }
-    return bytes;
-  }
-
-  private async measure(
+  const measure = async (
     root: string,
     titles: Map<string, Title>,
     byTitle: boolean,
-  ): Promise<{ total: number; segments: number }> {
+  ): Promise<{ total: number; segments: number; staleTemps: string[] }> => {
     let total = 0;
     let segments = 0;
+    const staleTemps: string[] = [];
     const entries = (
       await readdir(root, {
         recursive: true,
@@ -282,6 +284,7 @@ export class DiskGuard {
         batch.map(async (entry) => {
           const file = path.join(entry.parentPath, entry.name);
           const info = await stat(file).catch(() => {});
+
           return { name: entry.name, file, info };
         }),
       );
@@ -294,7 +297,7 @@ export class DiskGuard {
           name.endsWith(TEMP_SUFFIX) &&
           Date.now() - info.mtimeMs > STALE_TEMP_MS
         ) {
-          await rm(file, { force: true }).catch(() => {});
+          staleTemps.push(file);
           continue;
         }
         total += info.size;
@@ -320,6 +323,23 @@ export class DiskGuard {
         titles.set(sourceId, title);
       }
     }
-    return { total, segments };
+
+    return { total, segments, staleTemps };
+  };
+
+  return {
+    get lastUsage(): CacheUsage {
+      return usage;
+    },
+    start,
+    stop,
+  };
+}
+
+export type DiskGuard = ReturnType<typeof createDiskGuard>;
+
+async function removeFiles(files: string[]): Promise<void> {
+  for (const file of files) {
+    await rm(file, { force: true }).catch(() => {});
   }
 }

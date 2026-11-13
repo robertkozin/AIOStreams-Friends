@@ -97,7 +97,7 @@ describe.skipIf(!hasFfmpeg)('HLS remux of a generated file', () => {
       'de',
     ]);
     expect(audio.map((l) => /URI="([^"]*)"/.exec(l)?.[1])).toEqual(
-      AUDIO.map((_, i) => `audio/${i + 2}/index.m3u8`),
+      AUDIO.map((_, i) => `${i < 2 ? 'aac' : 'audio'}/${i + 2}/index.m3u8`),
     );
   });
 
@@ -112,7 +112,7 @@ describe.skipIf(!hasFfmpeg)('HLS remux of a generated file', () => {
     expect(variants).toHaveLength(1);
     const codecs = /CODECS="([^"]*)"/.exec(variants[0]!)?.[1]?.split(',');
     expect(codecs?.[0]).toMatch(/^avc1\./);
-    expect(codecs?.slice(1)).toEqual(['mp4a.40.2', 'mp4a.40.34', 'opus']);
+    expect(codecs?.slice(1)).toEqual(['mp4a.40.2', 'mp4a.6B', 'Opus']);
     expect(variants[0]).toContain('SUBTITLES="subs"');
     expect(variants[0]).toContain('RESOLUTION=320x180');
   });
@@ -143,10 +143,12 @@ describe.skipIf(!hasFfmpeg)('HLS remux of a generated file', () => {
     [5, 'mp3', 2],
     [6, 'opus', 2],
   ])('renders audio track %i as %s', async (number, codec, channels) => {
+    // Transcoded tracks are served under aac/, copied ones under audio/.
+    const kind = number < 4 ? 'aac' : 'audio';
     const streams = await probeSegment(
       tmp.dir,
-      await resolve('audio', String(number), 'init.mp4'),
-      await resolve('audio', String(number), '1.m4s'),
+      await resolve(kind, String(number), 'init.mp4'),
+      await resolve(kind, String(number), '1.m4s'),
     );
     expect(streams).toMatchObject([{ codec_name: codec, channels }]);
   });
