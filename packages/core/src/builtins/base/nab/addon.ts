@@ -385,7 +385,7 @@ export abstract class BaseNabAddon<
     };
 
     if (!this.userData.paginate) {
-      this.logger.info(
+      this.logger.debug(
         'Pagination handling is disabled, returning initial results only'
       );
       return allResults;
