@@ -38,7 +38,6 @@ import {
   IdMappingDataset,
   ensureConfigAccessKey,
   warnLegacyAuthVarsIfNeeded,
-  warnMissingConfigPermission,
   initialiseOidc,
   startAnalytics,
   stopAnalytics,
@@ -410,7 +409,6 @@ async function initialiseTemplates() {
 async function initialiseAuth() {
   await ensureConfigAccessKey();
   warnLegacyAuthVarsIfNeeded();
-  warnMissingConfigPermission();
   await initialiseOidc();
 }
 

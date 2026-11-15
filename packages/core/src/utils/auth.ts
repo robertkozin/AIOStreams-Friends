@@ -216,30 +216,6 @@ export function warnLegacyAuthVarsIfNeeded(): void {
   }
 }
 
-/**
- * Warn about explicit permission lists that predate a permission they now need.
- * Written before `createConfig` existed, such a list silently loses it. Call
- * once at startup; reuse for any permission added later.
- */
-export function warnMissingConfigPermission(): void {
-  if (!appConfig.api.authRequired) return;
-  const configured = appConfig.bootstrap.authPermissions;
-  if (!configured || configured.size === 0) return;
-
-  const affected = [...configured]
-    .filter(
-      ([, perms]) =>
-        !perms.has(Permission.Admin) && !perms.has(Permission.CreateConfig)
-    )
-    .map(([username]) => username);
-
-  if (affected.length === 0) return;
-  logger.warn(
-    { users: affected },
-    `these users have an explicit AIOSTREAMS_AUTH_PERMISSIONS entry without "${Permission.CreateConfig}" and can no longer create configurations. Add it to their entry if that is not intended.`
-  );
-}
-
 function sign(data: string): string {
   return createHmac('sha256', appConfig.bootstrap.secretKey)
     .update(data)

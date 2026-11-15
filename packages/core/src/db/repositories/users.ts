@@ -186,7 +186,7 @@ export class UserRepository {
   ): Promise<UserData | null> {
     try {
       const config = await this.loadRawUser(uuid, password);
-      logger.info(`Retrieved raw configuration for user ${uuid}`);
+      logger.debug(`Retrieved raw configuration for user ${uuid}`);
       return config;
     } catch (error) {
       if (error instanceof APIError) throw error;
@@ -224,7 +224,7 @@ export class UserRepository {
         }
       }
 
-      logger.info(`Retrieved configuration for user ${uuid}`);
+      logger.debug(`Retrieved configuration for user ${uuid}`);
       return config;
     } catch (error) {
       if (error instanceof APIError) throw error;

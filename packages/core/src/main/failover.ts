@@ -517,9 +517,13 @@ function runParallel(
           active--;
           failed.add(i);
           errors.push(err);
-          logger.warn(
+          // Attempts aborted because another one won (or the chain settled) are
+          // expected, not failures.
+          const cancelled = controllers[i]?.signal.aborted || settled;
+          (cancelled ? logger.debug : logger.warn).call(
+            logger,
             { attempt: i, label: attempts[i]?.label, err },
-            'failover attempt failed'
+            cancelled ? 'failover attempt cancelled' : 'failover attempt failed'
           );
           if (settled) return;
           // A lower-index failure can unblock accepting the current best.
