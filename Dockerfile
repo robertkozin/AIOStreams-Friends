@@ -107,7 +107,9 @@ RUN apt-get update \
 # zlib is linked statically: the runtime image has no libz. ffmpeg is only
 # what the HLS remux needs: Matroska in, fragmented MP4 and WebVTT out, AAC
 # for audio (lavfi makes the silence a converted track's init segment is cut
-# from).
+# from). A converted track's layout is probed by decoding one frame to WAV,
+# and pan folds layouts AAC can't carry; FLAC encodes a copied track's
+# silence. Keep this in step with the arguments in mkv-remuxer/src/hls.
 FROM debian:12-slim AS ffprobe
 ARG FFMPEG_VERSION=8.1.3
 ARG FFMPEG_SHA256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
@@ -126,10 +128,10 @@ RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VER
     --disable-x86asm --enable-zlib \
     --enable-protocol=file,http,tcp,pipe \
     --enable-indev=lavfi \
-    --enable-muxer=mp4,webvtt \
-    --enable-encoder=aac,webvtt \
+    --enable-muxer=mp4,wav,webvtt \
+    --enable-encoder=aac,flac,pcm_s16le,webvtt \
     --enable-bsf=noise \
-    --enable-filter=abuffer,abuffersink,aformat,anull,anullsrc,aresample,atrim,buffer,buffersink,format,null \
+    --enable-filter=abuffer,abuffersink,aformat,anull,anullsrc,apad,aresample,asetpts,atrim,buffer,buffersink,format,null,pan \
     --enable-demuxer=asf,avi,flv,matroska,mov,mpegps,mpegts,ogg \
     --enable-parser=aac,aac_latm,ac3,av1,dca,dvbsub,dvdsub,flac,h264,hevc,mlp,mpeg4video,mpegaudio,mpegvideo,opus,vc1,vorbis,vp8,vp9 \
     --enable-decoder=aac,aac_latm,ac3,alac,dca,eac3,flac,mlp,mp2,mp3,opus,truehd,vorbis,pcm_bluray,pcm_dvd,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,h264,hevc,mpeg2video,mpeg4,vc1,vp8,vp9,ass,ssa,subrip,srt,webvtt,movtext,pgssub,dvdsub,dvbsub \
