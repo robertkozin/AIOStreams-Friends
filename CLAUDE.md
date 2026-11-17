@@ -85,11 +85,16 @@ The frontend uses rsbuild (not Vite/webpack directly) — `pnpm -F frontend dev`
 
 A fork that regularly merges upstream AIOStreams. Kept in this one section so merges of the file above stay clean.
 
+### Branches
+
+- `friends` is the fork's default branch and carries every fork commit. `main` mirrors `upstream/main` exactly (never commit to it); sync it with `git fetch upstream && git branch -f main upstream/main` (or push `upstream/main` to `origin/main`), then merge it into `friends`.
+- No CI builds the image. The deployed stack (`~/compose/apps/aiostreams`) builds it from this repo's default branch in its compose file.
+
 ### Working here
 
 - Keep fork changes in new files where possible, and keep edits to upstream files small. Don't hand-edit upstream docs (`packages/docs/content/...`) or translation catalogs, and don't let Prettier reformat untouched parts of shared files.
 - Fork strings in `packages/web` are plain literals inside an `eslint-disable lingui/no-unlocalized-strings` block, not `t`. Don't run `i18n:extract`.
-- Work on `main` in the main checkout, uncommitted, unless asked to commit. No feature branches or worktrees.
+- Work on `friends` in the main checkout, uncommitted, unless asked to commit. No feature branches or worktrees.
 - Fork-owned: `packages/mkv-remuxer`, `packages/core/src/hls`, `packages/server/src/routes/api/hls.ts`, `packages/server/src/routes/jellyfin/hls*.ts`, `packages/web/src/lib/playback/hls.ts` and `cast.ts`. Upstream files the fork also touches include web's `controller.ts`, `use-player.ts`, `video.ts` (fullscreen only) and `app/player/page.tsx`.
 
 ### Tooling
