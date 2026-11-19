@@ -21,13 +21,14 @@ import {
   type QueuedItem,
   type Track,
 } from '@/lib/playback/controller';
-import type {
-  EngineFactory,
-  EngineFile,
-  EngineState,
-  EngineTrack,
-  ServerSubtitle,
-  VideoFrame,
+import {
+  liveHeaders,
+  type EngineFactory,
+  type EngineFile,
+  type EngineState,
+  type EngineTrack,
+  type ServerSubtitle,
+  type VideoFrame,
 } from '@/lib/playback/engine';
 import { audioCodes } from '@/lib/playback/track-picks';
 import { currentHost } from '..';
@@ -109,6 +110,7 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
   const report = (state: EngineState) => emit({ type: 'state', state });
 
   let file: EngineFile | null = null;
+  let subtitles: ServerSubtitle[] = [];
   let tracks: AppTrack[] = [];
   /** Files the user added, by the name the player lists them under. */
   const added = new Map<string, string>();
@@ -122,11 +124,12 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
 
   const load = (played: PlayedFile, append: boolean) => {
     const prefs = file?.prefs ?? {};
+    const live = !!played.source.IsInfiniteStream;
     send('player-load', {
       url: played.url,
-      headers: played.headers,
+      headers: live ? liveHeaders(played.headers) : played.headers,
       startMs: played.startMs,
-      live: !!played.source.IsInfiniteStream,
+      live,
       append,
       audioLanguages: audioCodes(prefs, played.source),
       subtitleLanguages: subtitleLanguages(prefs),
@@ -148,7 +151,7 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
       visualImpaired: t.visualImpaired,
       default: t.default,
       external: t.external,
-      server: file?.subtitles.find((s) => subtitleAddress(s) === t.url)?.id,
+      server: subtitles.find((s) => subtitleAddress(s) === t.url)?.id,
     }));
 
   const exoPlayerStats = exoStats();
@@ -163,6 +166,7 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
       unsubscribe();
       if (!external) loadedBy = self;
       file = next;
+      subtitles = next.subtitles;
       tracks = [];
       added.clear();
       moved = false;
@@ -317,7 +321,7 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
     setRate: (speed) => send('player-set', { speed }),
     setAudio: (audio) => send('player-set', { audio }),
     setSubtitle(id) {
-      const server = file?.subtitles.find((s) => s.id === id);
+      const server = subtitles.find((s) => s.id === id);
       if (!server) return send('player-set', { subtitle: id });
       // Fetched again on each pick: an addon may still be writing it.
       const url = subtitleAddress(server);
@@ -328,6 +332,9 @@ export const appEngine: EngineFactory = (emit, { launched }) => {
         language: server.lang ?? '',
         ...(loaded && { replace: Number(loaded.id) }),
       });
+    },
+    setSubtitles(next) {
+      subtitles = next;
     },
     setSubtitleDelay: (subtitleDelayMs) =>
       send('player-set', { subtitleDelayMs }),
@@ -538,7 +545,11 @@ export function playerSettings() {
       ? {
           frameRate: video.frameRate.read(),
           tunneling: video.tunneling.read(),
+          gpuSubtitles: video.gpuSubtitles.read(),
         }
-      : { audioDevice: audio.device.read() }),
+      : {
+          audioDevice: audio.device.read(),
+          superResolution: video.superResolution.read(),
+        }),
   };
 }

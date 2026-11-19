@@ -1,5 +1,5 @@
 import {
-  accountScope,
+  ownerScope,
   JellyfinRepository,
   type WatchScope,
 } from '@aiostreams/core';
@@ -23,9 +23,9 @@ export async function withAccountDefaults(
   client: string,
   stored: Prefs
 ): Promise<Prefs> {
-  const account = accountScope(watch.uuid);
+  const account = ownerScope(watch.uuid);
   if (id !== WEB_PREFS || client !== WEB_PREFS) return stored;
-  if (watch.persona === account.persona) return stored;
+  if (watch.profile === account.profile) return stored;
   const own = (stored?.CustomPrefs ?? {}) as Record<string, unknown>;
   const missing = INHERITED.filter((key) => !own[key]);
   if (!missing.length) return stored;

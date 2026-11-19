@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.12.0](https://github.com/Viren070/AIOStreams/compare/smart-tv-v0.11.0...smart-tv-v0.12.0) (2026-11-19)
+
+
+### Features
+
+* add settings for everyone and let the owner change other profiles' settings ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** give the saved servers one shared profile picker ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** keep the pages Back returns to mounted ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** list other saved servers' profiles on the profile picker ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** open settings sections with the slide-over ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+
+
+### Bug Fixes
+
+* **ui:** pass the Combobox's className to its trigger ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** add Path to the version list's fields ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** ask for addon subtitles once a version plays ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** don't retrace the jump out of a navigation box ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** hide the pages' wash under a back slide to a page without it ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** keep a scrolled-away bar away while a page scrolls down from its top ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** leave the player's controls hidden on swipes, skips and pauses ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** line up page titles and controls across pages ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** paint the guide as an art wash panel ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** put AVPlay's object under the page's background on Samsung TVs ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** ring a TV list's whole filter row ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** send live streams a VLC user agent from the apps' players ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** slide a page back the same way from either edge ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+* **web:** time the pause screen from the last input ([e44297f](https://github.com/Viren070/AIOStreams/commit/e44297f2d148712d6c203096d54130aab0bdcbeb))
+
+## [0.11.0](https://github.com/Viren070/AIOStreams/compare/smart-tv-v0.10.0...smart-tv-v0.11.0) (2026-11-17)
+
+
+### Features
+
+* **android:** blend subtitles on the GPU ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **desktop:** add graphics card super resolution ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** add a Live TV setting that takes channels off home or hides them ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** add switches for each player gesture ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** make the card preview one switch that opens by keys and pops out by mouse ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** pick the pages the artwork background shows behind ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** regroup the settings and add a search ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+
+
+### Bug Fixes
+
+* **ui:** scroll carousels with sideways wheel gestures in place of the wheel drag plugin ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **ui:** stop sideways wheel scrolling from flickering carousels ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** bring up the controls on OK during a live stream ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** clear the paper behind a select's scroll arrows on glass panels ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** clip a card grid while its preview pushes cards aside ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** ignore a keyup with no key while nothing is held ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** save a found server at the address it answered at after redirects ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+* **web:** skip the browser's position state for live streams ([050ed61](https://github.com/Viren070/AIOStreams/commit/050ed617655edfbb3eb1825d98e00502609b2af1))
+
 ## [0.10.0](https://github.com/Viren070/AIOStreams/compare/smart-tv-v0.9.0...smart-tv-v0.10.0) (2026-11-14)
 
 

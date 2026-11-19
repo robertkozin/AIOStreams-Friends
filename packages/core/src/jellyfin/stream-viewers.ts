@@ -1,8 +1,9 @@
 import { config as appConfig } from '../config/index.js';
 import { ConfigProfileRepository } from '../db/repositories/config-profiles.js';
-import type { JellyfinPersona } from '../db/schemas.js';
+import type { Profile } from '../db/schemas.js';
 import { playbackNzbHash } from '../debrid/utils.js';
 import { unwrapProxyUrl } from '../proxy/token.js';
+import { isOwner } from '../utils/profiles.js';
 import {
   noteStreamViewer,
   type StreamViewerHint,
@@ -60,13 +61,15 @@ function titleOf(memo: PlaybackMemo): string | undefined {
 }
 
 /**
- * Tell the stream registry which persona is about to play, or is playing, a
+ * Tell the stream registry which profile is about to play, or is playing, a
  * version, so the logs can name them.
  */
 export async function noteJellyfinViewer(
   who: {
     uuid: string;
-    persona: JellyfinPersona | null;
+    profile: Profile;
+    /** The profile's name as apps show it. */
+    name: string;
     client?: ClientInfo;
     clientIp?: string;
   },
@@ -78,8 +81,8 @@ export async function noteJellyfinViewer(
     {
       uuid: who.uuid,
       alias: await aliasOf(who.uuid),
-      personaId: who.persona?.id,
-      persona: who.persona?.name ?? 'Account',
+      personaId: isOwner(who.profile) ? undefined : who.profile.id,
+      persona: who.name,
       client: who.client?.name || undefined,
       device: who.client?.device || undefined,
       title: titleOf(memo),

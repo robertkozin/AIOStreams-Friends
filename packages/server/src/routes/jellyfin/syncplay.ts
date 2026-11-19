@@ -6,6 +6,7 @@ import {
   encodeItemId,
   hyphenless,
   isGuidLike,
+  isSeparate,
   msToTicks,
   sessionKeyFor,
   sharedBackend,
@@ -30,7 +31,7 @@ import {
   param,
   type JellyfinRequestContext,
 } from './context.js';
-import { accountName } from './users.js';
+import { profileName } from './users.js';
 import {
   clientKey,
   frame,
@@ -276,7 +277,7 @@ const keyOf = (ctx: JellyfinRequestContext) =>
 function memberOf(ctx: JellyfinRequestContext) {
   return {
     id: keyOf(ctx),
-    name: ctx.persona?.name ?? accountName(ctx.userData),
+    name: profileName(ctx.userData, ctx.profile),
     ping: 0,
     buffering: false,
     ignoreWait: false,
@@ -469,7 +470,7 @@ router.post(
           home: {
             uuid: ctx.uuid,
             userId: ctx.userId,
-            hidden: !!ctx.persona?.hidden,
+            hidden: isSeparate(ctx.profile),
           },
           away: {},
         };

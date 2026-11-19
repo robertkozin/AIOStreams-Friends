@@ -8,10 +8,11 @@ import {
 } from '@aiostreams/core';
 import type { JellyfinRequestContext } from './context.js';
 import { pickSource } from './playback.js';
+import { profileName } from './users.js';
 
 const logger = createLogger('jellyfin');
 
-/** Names the persona behind a version in the logs. */
+/** Names the profile behind a version in the logs. */
 export function noteViewer(
   req: Request,
   ctx: JellyfinRequestContext,
@@ -22,7 +23,8 @@ export function noteViewer(
   noteJellyfinViewer(
     {
       uuid: ctx.uuid,
-      persona: ctx.persona,
+      profile: ctx.profile,
+      name: profileName(ctx.userData, ctx.profile),
       client: ctx.client,
       clientIp: req.requestIp ?? req.ip,
     },

@@ -21,6 +21,7 @@ import type {
   EngineFile,
   EngineState,
   EngineTrack,
+  ServerSubtitle,
 } from './engine';
 import {
   isFullscreen,
@@ -577,6 +578,15 @@ export function hlsEngine(
         }
       };
     };
+    const serverTrack = (el: HTMLVideoElement, s: ServerSubtitle) => {
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.src = s.url;
+      track.label = s.label;
+      if (s.lang) track.srclang = s.lang;
+      el.append(track);
+      return track;
+    };
     const removeElements = () => {
       for (const e of elements) e.remove();
       elements = [];
@@ -589,15 +599,7 @@ export function hlsEngine(
       removeElements();
       file = next;
       delayMs = next.subtitleDelayMs;
-      elements = next.subtitles.map((s) => {
-        const track = document.createElement('track');
-        track.kind = 'subtitles';
-        track.src = s.url;
-        track.label = s.label;
-        if (s.lang) track.srclang = s.lang;
-        el.append(track);
-        return track;
-      });
+      elements = next.subtitles.map((s) => serverTrack(el, s));
       if (next.volume) {
         el.volume = Math.min(1, next.volume.volume);
         el.muted = next.volume.muted;
@@ -996,6 +998,16 @@ export function hlsEngine(
           set({ audio: id });
       },
       setSubtitle,
+      setSubtitles(next) {
+        const el = video.current;
+        if (!file || !el) return;
+        for (const s of next.slice(file.subtitles.length)) {
+          const track = serverTrack(el, s);
+          track.addEventListener('load', onTrackLoad);
+          elements.push(track);
+        }
+        file = { ...file, subtitles: next };
+      },
       setSubtitleDelay(ms) {
         delayMs = ms;
         shiftCues();

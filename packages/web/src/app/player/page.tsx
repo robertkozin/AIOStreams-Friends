@@ -18,6 +18,7 @@ import { cn } from '@aiostreams/ui/core/styling';
 import { useSession } from '@/lib/jellyfin/session';
 import { useItem } from '@/lib/jellyfin/queries';
 import {
+  useLaterSubtitles,
   useMaxBitrate,
   usePlaybackInfo,
   usePlaybackInfoOptions,
@@ -910,6 +911,7 @@ function Player({
       pictures: trickplayFeed(client, item, source),
     };
   }, [local, youTube, client, item, source]);
+  const laterSubtitles = useLaterSubtitles(item.Id!, source, !local?.local);
   const own = usePlayer(engines.map(withPartyStats), {
     client,
     item,
@@ -924,6 +926,7 @@ function Player({
         : (hlsUrl(client, source) ?? undefined),
     headers: local?.local ? undefined : requiredHeaders(source),
     subtitleUrl: local ? localSubtitle : undefined,
+    laterSubtitles,
     source,
     startMs,
     onEnded,
