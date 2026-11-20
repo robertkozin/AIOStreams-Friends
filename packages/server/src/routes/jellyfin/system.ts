@@ -17,7 +17,6 @@ import {
   resolveConfig,
 } from './context.js';
 import { relayMode } from '../../party/mode.js';
-import { withAccountDefaults } from './persona-prefs.js';
 import { prefsScope } from './preferences.js';
 
 const router: Router = Router({ mergeParams: true });
@@ -241,12 +240,10 @@ router.get(
   jf(async (req, res, ctx) => {
     const client = qs(req, 'client') || 'emby';
     const id = param(req, 'id');
-    const scope = prefsScope(ctx, qs(req, 'userId'), false)!;
-    const stored = await withAccountDefaults(
-      scope,
+    const stored = await JellyfinRepository.getDisplayPrefs(
+      prefsScope(ctx, qs(req, 'userId'), false)!,
       id,
-      client,
-      await JellyfinRepository.getDisplayPrefs(scope, id, client)
+      client
     );
     const defaults = DEFAULT_DISPLAY_PREFS(id, client);
     res.json({
