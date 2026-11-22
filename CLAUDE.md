@@ -87,7 +87,7 @@ A fork that regularly merges upstream AIOStreams. Kept in this one section so me
 
 ### Branches
 
-- `friends` is the fork's default branch and carries every fork commit. `main` mirrors `upstream/main` exactly (never commit to it); sync it with `git fetch upstream && git branch -f main upstream/main` (or push `upstream/main` to `origin/main`), then merge it into `friends`.
+- `friends` is the fork's default branch and carries every fork commit. `main` mirrors `upstream/main` exactly (never commit to it); sync it with `git fetch upstream && git branch -f main upstream/main` (or push `upstream/main` to `origin/main`), then rebase `friends` onto it, so the fork stays a linear stack of commits on top of upstream (no merge commits). Fold fixes a conflict needs into the commit they belong to (`git commit --fixup`, then `GIT_SEQUENCE_EDITOR=true git rebase -i --autosquash main`); `friends` then needs a force push.
 - No CI builds the image. The deployed stack (`~/compose/projects/aiostreams`) builds it from this repo's default branch in its compose file.
 
 ### Working here
