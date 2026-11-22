@@ -157,7 +157,7 @@ function PlayerCard() {
   const [link, setLink] = useSetting(settings.player.link);
   const [engine, setEngine] = useSetting(settings.player.engine);
   const browserEngine =
-    engine === 'browser' || engine === 'hls' ? engine : 'webgpu';
+    engine === 'browser' || engine === 'webgpu' ? engine : 'hls';
   const [cacheSize, setCacheSize] = useSetting(settings.player.cacheSize);
   const [back, setBack] = useSetting(settings.player.back);
   const [pipWindow, setPipWindow] = useSetting(

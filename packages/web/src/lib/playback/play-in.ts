@@ -26,17 +26,16 @@ export const pagePlays = () => !currentHost().play && !currentHost().player;
 
 /**
  * The page's engines for the Engine setting, each passing what it can't play
- * to the next. Automatic, as upstream's Settings shows it, is WebGPU where it
- * can play and the HLS remux elsewhere. The browser's own player never passes
- * a version on, so it comes last, or alone where it is chosen.
+ * to the next. Automatic is the HLS remux, then WebGPU where it can play;
+ * WebGPU goes first only where it is chosen. The browser's own player never
+ * passes a version on, so it comes last, or alone where it is chosen.
  */
 export function engineOrder(): EngineId[] {
   const engine: PlayerEngine = settings.player.engine.read();
   const webGpu = canPlayWithWebGpu();
   if (engine === 'browser') return ['browser'];
-  if (engine === 'hls' || !webGpu)
-    return webGpu ? ['hls', 'webgpu', 'browser'] : ['hls', 'browser'];
-  return ['webgpu', 'hls', 'browser'];
+  if (engine === 'webgpu' && webGpu) return ['webgpu', 'hls', 'browser'];
+  return webGpu ? ['hls', 'webgpu', 'browser'] : ['hls', 'browser'];
 }
 
 /** The choice: the engine the page starts with, or a link player's id. */
